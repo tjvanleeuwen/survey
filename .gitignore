@@ -1,2 +1,13 @@
-results/*
-!results/.gitkeep
+# Mac
+*DS_Store
+
+# Generated figures
+figures/*
+!figures/.gitkeep
+
+# Generated data
+data/*
+!data/.gitkeep
+
+# Rstudio files
+.Rproj.user/
