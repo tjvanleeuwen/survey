@@ -9,5 +9,10 @@ figures/*
 data/*
 !data/.gitkeep
 
+# Renv 
+renv/*
+
 # Rstudio files
 .Rproj.user/
+.Rprofile
+
