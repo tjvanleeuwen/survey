@@ -1,36 +1,22 @@
+
+rm(list = ls())
+
 library(dplyr)
-library(ggplot2)
-library(RColorBrewer)
-library(tidyr)
-library(rlang)
+library(here)
+# library(ggplot2)
+# library(RColorBrewer)
+# library(tidyr)
+# library(rlang)
 library(janitor)
-library(forcats)
-library(scales)
-library(patchwork)
+# library(forcats)
+# library(scales)
+# library(patchwork)
 library(jsonlite)
 
 
 ## ----- Utility functions -----
 
-equals <- function(a, b) 
-  a == b & !is.na(a) & !is.na(b)
-
-remove_na <- function(x) 
-  x[!is.na(x)]
-
-is_numeric <- function(x) 
-  all (!is.na (suppressWarnings (as.numeric (remove_na(x)))))
-
-common_prefix <- function(str_list) {
-  chars <- strsplit(str_list, "")
-  i <- 1
-  repeat {
-    current <- sapply(chars, `[`, i)
-    if (length(unique(current)) != 1 || any(is.na(current))) break
-    i <- i + 1
-  }
-  return (paste (chars[[1]][seq_len(i - 1)], collapse = ""))
-}
+source(here("R", "utils.R"))
 
 find_levels <- function(df_labs, df_vals, cols){
   labels <- unique (unlist (df_labs[cols]))
@@ -236,15 +222,6 @@ ubos <- questions$name [grepl("UBOS", questions$name, fixed=TRUE)]
 pss <- questions$name [grepl("PSS", questions$name, fixed=TRUE)]
 other <- setdiff (colnames(labs), c(general, agree_disagree, always_never, ubos, pss))
 
-question_types <- list(
-  general = general,
-  agree_disagree = agree_disagree,
-  always_never = always_never,
-  ubos = ubos,
-  pss = pss,
-  other = other
-)
-
 
 ## ----- UBOS and PSS -----
 
@@ -263,12 +240,21 @@ ubos_zero <- which(colnames(labs) == ubos[1]) - 1
 colnames(labs)[ubos_zero + ubos_U] <- paste("MH_UBOS_U", 1:length(ubos_U), sep="_")
 colnames(labs)[ubos_zero + ubos_D] <- paste("MH_UBOS_D", 1:length(ubos_D), sep="_")
 colnames(labs)[ubos_zero + ubos_C] <- paste("MH_UBOS_C", 1:length(ubos_C), sep="_")
+ubos <- colnames(labs)[ubos_zero + 1:15]
 
 positive_pss <- c(4, 5, 7, 8)
 pss_zero <- which(colnames(labs) == pss[1]) - 1
-x <- labs[pss_zero + 4]
 labs[pss_zero + positive_pss] <- 4 - labs[pss_zero + positive_pss]
 
+
+question_types <- list(
+  general = general,
+  agree_disagree = agree_disagree,
+  always_never = always_never,
+  ubos = ubos,
+  pss = pss,
+  other = other
+)
 
 ## ----- Factors -----
 
@@ -286,8 +272,10 @@ metadata <- list(
   factors = factors
 )
 
+metadata$factors$other[["Sup_ActiveSup"]] <- c("Promotor", "Copromotor", "Postdoc", "Other")
+
 write_json(metadata, "./data/metadata.json", pretty=TRUE)
-write.csv(labs, "./data/cleaned_data.csv")
+write.csv(labs, "./data/cleaned_data.csv", row.names = FALSE)
 
 
 
