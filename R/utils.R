@@ -10,8 +10,8 @@ library(docstring)
 equals <- function(a, b) {
   #' @title Compare two vectors for non-missing equality
   #' @description This function performs element-wise comparison of two vectors
-  #' and returns TRUE only where both elements are equal and neither value is NA.
-  #' Any comparison involving NA returns FALSE.
+  #' and returns TRUE only where both elements are equal and neither value is 
+  #' NA. Any comparison involving NA returns FALSE.
   #' @param a The first vector.
   #' @param b The second vector.
   #' @return A logical vector indicating where a and b are equal and non-missing.
@@ -80,9 +80,10 @@ coerce_factor <- function(col) {
 number_of_cols <- function(n) {
   #' @title Determine best number of columns for layout
   #' @description Chooses the optimal number of columns to arrange `n` items 
-  #'   in a visually balanced grid. Prefers layouts divisible by 4, then 5, then 3. 
-  #'   If `n` is not divisible by any, returns the number (4, 5, or 3) that maximizes 
-  #'   the remainder (`n %% k`) to minimize leftover items in the last row.
+  #'   in a visually balanced grid. Prefers layouts divisible by 4, then 5, 
+  #'   then 3. If `n` is not divisible by any, returns the number (4, 5, or 3) 
+  #'   that maximizes the remainder (`n %% k`) to minimize leftover items in 
+  #'   the last row.
   #' @param n A single numeric value specifying the total number of items.
   #' @return An integer indicating the recommended number of columns.
   
@@ -99,5 +100,57 @@ number_of_cols <- function(n) {
   best <- candidates[which.max(remainders)]
   return(best)
 }
+
+
+show_cols <- function(lst){
+  #' @title Display list elements as equal-length tibble columns
+  #' @description This function takes a list of vectors and ensures that all
+  #' elements have the same length by extending shorter vectors with NA values.
+  #' If the list elements are unnamed, default column names are generated.
+  #' The resulting list is printed as a tibble with one column per list element.
+  #' The function is used for display purposes and does not return the tibble.
+  #' @param lst A list of vectors to be displayed as columns.
+  #' @return NULL. The formatted tibble is printed to the console as a
+  #' side effect.
+  len <- max(lengths(lst))
+  lst <- lapply(lst, `length<-`, len)
+  if (is.null(names(lst))) {
+    names(lst) <- paste0("V", seq_along(lst))
+  }
+  print(as_tibble(lst), n=len)
+  return()
+}
+
+
+shorten_answer <- function(column, short, test=FALSE){
+  #' @title Recode values in a column to shorter labels
+  #' @description This function replaces the non-missing values of a column
+  #' with corresponding shorter labels. Unique non-missing values are extracted
+  #' and matched in order to a provided vector of short labels. Optionally,
+  #' the detected unique values can be printed for inspection.
+  #' @param column A vector whose values are to be recoded.
+  #' @param short A character vector of replacement (short) labels. Its length
+  #' must match the number of unique non-missing values in `column`.
+  #' @param test Logical; if TRUE, the unique non-missing values of `column`
+  #' are printed before recoding. Default is FALSE.
+  #' @return A vector of the same length as `column`, where non-missing values
+  #' have been replaced by their corresponding short labels.
+  long <- unique (remove_na (column))
+  if (test) print(long)
+  column <- setNames(short, long)[column]
+  return(column)
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 

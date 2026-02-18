@@ -3,14 +3,7 @@ rm(list = ls())
 
 library(dplyr)
 library(here)
-# library(ggplot2)
-# library(RColorBrewer)
-# library(tidyr)
-# library(rlang)
 library(janitor)
-# library(forcats)
-# library(scales)
-# library(patchwork)
 library(jsonlite)
 
 
@@ -18,264 +11,354 @@ library(jsonlite)
 
 source(here("R", "utils.R"))
 
+## ----- Read data -----
+
+read_data <- function(filepath_labs="../labels.csv", filepath_vals="../values.csv"){
+  labs <- read.csv(filepath_labs, header=TRUE)
+  vals <- read.csv(filepath_vals, header=TRUE)
+  
+  ## first 12 columns are unnecessary (respondent specific metadata)
+  labs <- labs[, -c(1:12)]
+  vals <- vals[, -c(1:12)]
+  
+  ## first row contains the questions
+  ques <- labs[1,]
+  write.csv(t(ques), "./data/questions.csv", row.names = TRUE)
+  
+  ## rereading converts datatypes nicely
+  write.csv(labs[-c(1, 2), ], "./data/labs.csv", row.names = FALSE)
+  labs <- read.csv("./data/labs.csv", header=TRUE, 
+                   na.strings = c("", "I don't know", "NA"))
+  
+  write.csv(vals[-c(1, 2), ], "./data/vals.csv", row.names = FALSE)
+  vals <- read.csv("./data/vals.csv", header=TRUE)
+  vals[is.na(labs)] <- NA
+  
+  ## typo in column name
+  labs <- rename(labs, !!!setNames("Gen_Departement", "Gen_Department"))
+  vals <- rename(vals, !!!setNames("Gen_Departement", "Gen_Department"))
+  ques <- rename(ques, !!!setNames("Gen_Departement", "Gen_Department"))
+  
+  return(list(labs, vals, ques))
+}
+
+
+## ----- Clean data -----
+
+fix_other_dept <- function(data){
+  ## people who gave an 'other department' are from FI
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  dept_other <- equals (labs$Gen_Department, "Another department, namely")
+  inst_fi_val <- unique (vals$Gen_Institute.[
+    equals(labs$Gen_Institute., "Freudenthal Institute")
+  ])
+  dept_fi_val <- unique (vals$Gen_Department[
+    equals(labs$Gen_Institute., "Freudenthal Institute")
+  ])
+  if (length(inst_fi_val) != 1 | length(dept_fi_val) != 1) 
+    stop("values not found")
+  
+  vals <- vals |> 
+    mutate(
+      Gen_Department = ifelse (dept_other, dept_fi_val, Gen_Department),
+      ## Add 4 to account for the ICS categories
+      Gen_Institute. = ifelse (dept_other, inst_fi_val, Gen_Institute.) + 4,
+      Gen_Institute = coalesce (Gen_Institute., Gen_Institute_ICS)
+    ) |>
+    relocate(Gen_Institute, .after=Gen_Department) |>
+    select(-Gen_Institute., -Gen_Institute_ICS, -Gen_Departement_5_TEXT)
+  
+  labs <- labs |> 
+    mutate(
+      Gen_Department = ifelse (dept_other, "Mathematics", Gen_Department),
+      Gen_Institute. = ifelse (dept_other, "Freudenthal Institute", 
+                               Gen_Institute.),
+      Gen_Institute = coalesce (Gen_Institute., Gen_Institute_ICS)
+    ) |>
+    relocate(Gen_Institute, .after=Gen_Department) |>
+    select(-Gen_Institute., -Gen_Institute_ICS, -Gen_Departement_5_TEXT)
+  
+  colnames(ques)[colnames(ques) == "Gen_Institute."] <- "Gen_Institute"
+  ques <- ques[, !colnames(ques) %in%c("Gen_Institute_ICS", 
+                                       "Gen_Departement_5_TEXT")]
+  
+  return(list(labs, vals, ques))
+}
+
+
+remove_test_question <- function(data){
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  labs[["Sup_Leadership_10"]] <- NULL
+  vals[["Sup_Leadership_10"]] <- NULL
+  ques[["Sup_Leadership_10"]] <- NULL
+  
+  return(list(labs, vals, ques))
+}
+
+
+shorten <- function(data, test=FALSE) {
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  labs <- labs |> mutate(
+    Gen_Department = shorten_answer(
+      Gen_Department, c("Phys", "ICS", "Chem", "Maths"), test
+    ),
+    Gen_Institute = shorten_answer(
+      Gen_Institute, 
+      c("GRASP", "Interaction", "Data", "Software", "ISCC", "IMAU", "Debye", 
+        "ITP", "Freudenthal", "Mathematics", "Algorithms"),
+      test
+    ),
+    Gen_PhDtype = shorten_answer(
+      Gen_PhDtype, c("UU", "External", "NWO-I", "None"), test
+    ),
+    Gen_Studies = shorten_answer(
+      Gen_Studies, c("Utrecht", "EU", "Other", "Netherlands"), test
+    )
+  )
+  return(list(labs, vals, ques))
+}
+
+
+create_disag_columns <- function(data){
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  labs <- labs |>
+    mutate(
+      Gen_FTE = ifelse(Gen_PhDfulltime. == "Full-time", 
+                                1, Gen_PhDparttime._1),
+      Gen_Gender = ifelse(Gen_Gender == "Male", "Majority", "Minority"),
+      Gen_Nationality = ifelse(startsWith(Gen_Nation, "Dutch"), "Yes", "No"),
+      Gen_Progress = cut(Gen_PhDyear_1 / Gen_PhDtrack, 
+                         breaks=c(0, 0.25, 0.5, 0.75, 10),
+                         labels=c("<25%", "25%-50%", "50%-75%", ">75%"))
+    ) |>
+    relocate(Gen_FTE, .after = Gen_PhDparttime._1) |>
+    relocate(Gen_Nationality, .after = Gen_Nation) |>
+    relocate(Gen_Progress, .after = Gen_PhDyear_1) |>
+    select(-Gen_PhDfulltime., -Gen_PhDparttime._1, -Gen_Nation, 
+           -Gen_PhDyear_1, -Gen_PhDtrack)
+  
+  vals <- vals |>
+    mutate(
+      Gen_FTE = labs$Gen_FTE,
+      Gen_Gender = ifelse(labs$Gen_Gender == "Minority", 1, 2),
+      Gen_Nationality = ifelse(labs$Gen_Nationality == "Yes", 1, 2),
+      Gen_Progress = as.integer(labs$Gen_Progress)
+    ) |>
+    relocate(Gen_FTE, .after = Gen_PhDparttime._1) |>
+    relocate(Gen_Nationality, .after = Gen_Nation) |>
+    relocate(Gen_Progress, .after = Gen_PhDyear_1) |>
+    select(-Gen_PhDfulltime., -Gen_PhDparttime._1, -Gen_Nation, 
+           -Gen_PhDyear_1, -Gen_PhDtrack)
+  
+  ques <- ques |>
+    mutate(
+      Gen_Nation = "Do you have a Dutch nationality?"
+    ) |>
+    rename(!!!setNames(c("Gen_PhDparttime._1", "Gen_PhDyear_1", "Gen_Nation"), 
+                       c("Gen_FTE", "Gen_Progress", "Gen_Nationality"))) |>
+    select(-Gen_PhDfulltime., -Gen_PhDtrack)
+  
+  return(list(labs, vals, ques))
+}
+
+
+remove_and_write <- function(data){
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  if (any(colnames(labs) != colnames(vals) | colnames(vals) != colnames(ques)))
+    stop("Inconsistent columns")
+  
+  open_questions <- grepl("^End_|_(TEXT|Other|Open)$", colnames(labs))
+  general_questions <- grepl("^Gen_", colnames(labs))
+  
+  open_answers <- labs[, open_questions | general_questions]
+  open_answers <- open_answers[
+    rowSums (is.na (labs[, open_questions])) < length(open_questions),
+  ]
+  open_answers <- remove_empty(open_answers, "cols")
+  write.csv(open_answers, "./data/open_questions.csv", row.names = FALSE,)
+  
+  labs <- labs[, !open_questions]
+  vals <- vals[, !open_questions]
+  ques <- ques[, !open_questions]
+  
+  if (any(colnames(labs) != colnames(vals) | colnames(vals) != colnames(ques)))
+    stop("Error in column removal")
+  
+  return(list(labs, vals, ques))
+}
+
+
+rename_ubos_df <- function(df, prefix = "MH_UBOS") {
+  ubos_cols <- grep("UBOS", colnames(df))
+  if(length(ubos_cols) == 0) return(df)
+  
+  ubos_U <- c(1, 3, 5, 11, 13)
+  ubos_D <- c(2, 7, 8, 14)
+  ubos_C <- c(4, 6, 9, 10, 12, 15)
+  
+  ubos_zero <- ubos_cols[1] - 1
+  
+  colnames(df)[ubos_zero + ubos_U] <- paste(prefix, "U", seq_along(ubos_U), sep = "_")
+  colnames(df)[ubos_zero + ubos_D] <- paste(prefix, "D", seq_along(ubos_D), sep = "_")
+  colnames(df)[ubos_zero + ubos_C] <- paste(prefix, "C", seq_along(ubos_C), sep = "_")
+  
+  return(df)
+}
+rename_ubos <- function(data){
+  return(lapply(data, rename_ubos_df))
+}
+
+
+
+## ----- Clean questions -----
+
+select_upto_qm <- function(ques, names, test=FALSE){
+  if (length(names) == 1) {names <- c(names)}
+  for (name in names) {
+    target_question <- ques$name == name
+    question <- ques$question[target_question]
+    result <- sub("^([^?]*\\?).*", "\\1", question)
+    if (test) print(result)
+    ques$question[target_question] <- result
+  }
+  return(ques)
+}
+
+remove_inbrackets <- function(ques){
+  gsub("\\s*\\([^)]*\\)", "", ques)
+}
+
+set_type_row <- function(df, row, type_row, pattern, value) {
+  cols <- grepl(pattern, row, fixed=TRUE)
+  df[type_row, cols] <- value
+  return(df)
+}
+
+sort_questions <- function(data) {
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  ques <- ques |> 
+    mutate(id = "question") |> 
+    relocate(id) |>
+    add_row(id = "type") |>
+    add_row(id = "preamble")
+  
+  name_patterns <- c("^Gen_", "UBOS", "PSS")
+  name_types <- c("general", "ubos", "pss")
+  
+  ques_patterns <- c("1 (strongly disagree) to 7 (strongly agree)",
+                "1 (never) to 7 (always)")
+  ques_types <- c("disagree/agree", "never/always")
+  
+  type_row <- which(ques$id == "type")
+  
+  for (i in seq_along(name_patterns))
+    ques <- set_type_row(ques, colnames(ques), type_row, 
+                         name_patterns[i], name_types[i])
+  for (i in seq_along(ques_patterns))
+    ques <- set_type_row(ques, ques[ques$id == "question", ], type_row, 
+                         ques_patterns[i], ques_types[i])
+  ques[type_row, is.na(ques[type_row, ])] <- "other"
+  
+  return(list(labs, vals, ques))
+}
+
+
+## ----- Prime data -----
+
+
+select_data <- function(data, cutoff=20){
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  enough_rows <- rowSums(is.na(labs)) < ncol(labs) - cutoff + 1
+  labs <- labs[enough_rows, ]
+  vals <- vals[enough_rows, ]
+  
+  return(list(labs, vals, ques))
+}
+
+
 find_levels <- function(df_labs, df_vals, cols){
   labels <- unique (unlist (df_labs[cols]))
   values <- unique (unlist (df_vals[cols]))
   return (remove_na (labels[order(values)]))
 }
 
-find_questions <- function(colnames, questions, cols){
-  result <- questions[colnames %in% cols]
-  result <- sub (paste0("^", common_prefix(result)), "", result)
-  return(result)
-}
-
-list_levels <- function(df_labs, df_vals, names){
-  levels <- list()
-  for (name in names) {
-    levels[[name]] <- 
-      if (is.factor (df_labs[[name]])) {
-        levels(df_labs[[name]])
-      } else if (is_numeric( df_labs[[name]])) {
-        sort (unique (df_labs[[name]]))
-      } else {
-        find_levels(df_labs, df_vals, name)
-      }
+factorise <- function(data){
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
+  
+  if (! "id" %in% colnames(ques)) 
+    stop("No id column in questions dataframe")
+  
+  type_row = which(ques$id == "type")
+  
+  if (any(is.na(ques[type_row, ])))
+    stop("Missing types")
+  
+  individual_cols <- colnames(ques)[ques[type_row, ] %in% c("general", "other")]
+  likert_cols <- colnames(ques)[ques[type_row, ] %in% 
+                              c("disagree/agree", "never/always")]
+  
+  for (col in individual_cols){
+    labs[[col]] <- factor(labs[[col]], find_levels(labs, vals, col))
   }
-  return(levels)
+  for (col in likert_cols){
+    labs[[col]] <- factor(labs[[col]], 1:7)
+  }
+  labs[["Sup_ActiveSup"]] <- 
+    factor(labs[["Sup_ActiveSup"]], 
+           c("Promotor", "Copromotor", "Postdoc", "Other"))
+  
+  return(list(labs, vals, ques))
 }
 
 
-## ----- Read data -----
-
-labs <- read.csv("../labels.csv", header=TRUE)
-vals <- read.csv("../values.csv", header=TRUE)
-
-write.csv(t (labs[, -c(1:12)][1,]), "./data/questions.csv", row.names = TRUE)
-questions <- read.csv("./data/questions.csv", header=TRUE)
-colnames(questions) <- c("name", "question")
-
-write.csv(labs[-c(1, 2), ][, -c(1:12)], "./data/labs.csv", row.names = FALSE)
-labs <- read.csv("./data/labs.csv", header=TRUE, 
-                 na.strings = c("", "I don't know", "NA"))
-write.csv(vals[-c(1, 2), ][, -c(1:12)], "./data/vals.csv", row.names = FALSE)
-vals <- read.csv("./data/vals.csv", header=TRUE)
-vals[is.na(labs)] <- NA
 
 
-## ----- Visual inspection -----
-
-## typo in column name
-colnames(labs)[colnames(labs) == "Gen_Departement"] <- "Gen_Department"
-colnames(vals)[colnames(vals) == "Gen_Departement"] <- "Gen_Department"
-questions$name[questions$name == "Gen_Departement"] <- "Gen_Department"
-
-## people who gave an 'other department' are from FI
-## SupLeadership_10 is unnecessary
-
-dept_other <- equals (labs$Gen_Department, "Another department, namely")
-inst_fi_val <- unique (vals$Gen_Institute.[
-  equals(labs$Gen_Institute., "Freudenthal Institute")
-])
-dept_fi_val <- unique (vals$Gen_Department[
-  equals(labs$Gen_Institute., "Freudenthal Institute")
-])
-if (length(inst_fi_val) != 1 | length(dept_fi_val) != 1) print("Error!")
-
-vals <- vals |> 
-  mutate(
-    Gen_Department = ifelse (dept_other, dept_fi_val, Gen_Department),
-    ## Add 4 to account for the ICS categories
-    Gen_Institute. = ifelse (dept_other, inst_fi_val, Gen_Institute.) + 4,
-    Gen_Institute = coalesce (Gen_Institute., Gen_Institute_ICS)
-  ) |>
-  relocate(Gen_Institute, .after=Gen_Department) |>
-  select(-Gen_Institute., -Gen_Institute_ICS, 
-         -Gen_Departement_5_TEXT, -Sup_Leadership_10)
-
-labs <- labs |> 
-  mutate(
-    Gen_Department = ifelse (dept_other, "Mathematics", Gen_Department),
-    Gen_Institute. = ifelse (dept_other, "Freudenthal Institute", Gen_Institute.),
-    Gen_Institute = coalesce (Gen_Institute., Gen_Institute_ICS)
-  ) |>
-  relocate(Gen_Institute, .after=Gen_Department) |>
-  select(-Gen_Institute., -Gen_Institute_ICS, 
-         -Gen_Departement_5_TEXT, -Sup_Leadership_10)
-
-questions$name[questions$name == "Gen_Institute."] <- "Gen_Institute"
-questions <- questions [!questions$name %in% c(
-  "Gen_Institute_ICS", "Gen_Departement_5_TEXT", "Sup_Leadership_10"
-), ]
 
 
-## ----- Legibility -----
-
-test <- FALSE
-
-## note: requires manual input of shortened names
-
-long <- remove_na( unique(labs$Gen_Department) )
-short <- c("Phys", "ICS", "Chem", "Maths")
-if(test) print( tibble(long, short) )
-labs$Gen_Department <- setNames(short, long)[labs$Gen_Department]
-
-long <- remove_na( unique(labs$Gen_Institute) )
-short <- c("GRASP", "Interaction", "Data", "Software", "ISCC", "IMAU",
-           "Debye", "ITP", "Freudenthal", "Mathematics", "Algorithms")
-if(test) print( tibble(long, short) )
-labs$Gen_Institute <- setNames(short, long)[labs$Gen_Institute]
-
-long <- remove_na( unique(labs$Gen_PhDtype) )
-short <- c("UU", "External", "NWO-I", "None")
-if(test) print( tibble(long, short) )
-labs$Gen_PhDtype <- setNames(short, long)[labs$Gen_PhDtype]
-
-long <- remove_na( unique(labs$Gen_Studies) )
-short <- c("Utrecht", "EU", "Other", "Netherlands")
-if(test) print( tibble(long, short) )
-labs$Gen_Studies <- setNames(short, long)[labs$Gen_Studies]
 
 
-## ----- Disaggregation -----
+## ----- Final -----
 
-labs <- labs |>
-  mutate(
-    Gen_FTE = ifelse(Gen_PhDfulltime. == "Full-time", 1, Gen_PhDparttime._1),
-    .before = Gen_PhDfulltime.
-  ) |>
-  select(-Gen_PhDfulltime., -Gen_PhDparttime._1)
-
-labs <- labs |> 
-  mutate(
-    Gen_Gender_Dis = ifelse(Gen_Gender == "Male", "Majority", "Minority"),
-    Gen_Gender_Dis = factor(Gen_Gender_Dis, levels=c("Minority", "Majority")),
-    .after = Gen_Gender
-  )
-
-labs <- labs |>
-  mutate(
-    Gen_Nation_Dis = ifelse(grepl("Dutch,", Gen_Nation, fixed=TRUE),
-                            "Dutch", Gen_Nation),
-    Gen_Nation_Dis = ifelse(Gen_Nation_Dis == "Dutch",
-                            "Dutch", "Non-Dutch"),
-    Gen_Nation_Dis = factor(Gen_Nation_Dis, levels=c("Dutch", "Non-Dutch")),
-    .after = Gen_Nation
-  )
-
-labs <- labs |>
-  mutate(
-    Gen_Progress = cut(Gen_PhDyear_1 / Gen_PhDtrack, 
-                       breaks=c(0, 0.25, 0.5, 0.75, 1, 10),
-                       labels=c("<25%", "25%-50%", "50%-75%", "75%-100%", ">100%")),
-    Gen_Progress_Dis = cut(Gen_PhDyear_1 / Gen_PhDtrack, 
-                           breaks=c(0, 0.25, 0.5, 0.75, 10),
-                           labels=c("<25%", "25%-50%", "50%-75%", ">75%")),
-    .before = Gen_PhDtrack
-  )
+clean <- function(data){
+  ## clean data
+  data <- fix_other_dept(data)
+  data <- remove_test_question(data)
+  data <- shorten(data)
+  data <- create_disag_columns(data)
+  data <- remove_and_write(data)
+  data <- rename_ubos(data)
+  ## clean questions
+  data <- sort_questions(data)
+  ## prime data
+  data <- select_data(data)
+  data <- factorise(data)
+  return(data)
+}
 
 
-## ----- Open questions -----
-
-disaggregation_q <- colnames(labs) %in% c("Gen_Institute", "Gen_Progress", 
-                                          "Gen_Gender_Dis", "Gen_Nation_Dis")
-open_q_labs <- grepl("_(TEXT|Other|Open)$", colnames(labs)) | 
-  grepl("^End_", colnames(labs))
-open_q_vals <- grepl("_(TEXT|Other|Open)$", colnames(vals)) | 
-  grepl("^End_", colnames(vals))
-
-## select only respondents who answered an open question
-open_q <- labs[, disaggregation_q | open_q_labs]
-open_q <- open_q[
-  rowSums( is.na( labs[, open_q_labs] ) ) < sum(open_q_labs), 
-]
-open_q <- remove_empty(open_q, "cols")
-write.csv(open_q, "./data/open_questions.csv", row.names = FALSE,)
-
-
-## ----- Data selection -----
-
-## select respondents that have given at least some answers
-questions <- questions[ !questions$name %in% colnames(labs)[open_q_labs], ]
-labs <- labs[, !open_q_labs]
-vals <- vals[, !open_q_vals]
-total_respondents <- nrow(labs)
-print(paste("Total respondents:", total_respondents))
-cutoff <- 15
-print( paste("Select respondents with at least", cutoff, "answers") )
-enough_rows <- rowSums(is.na(labs)) < ncol(labs) - cutoff + 1
-labs <- labs[enough_rows, ]
-vals <- vals[enough_rows, ]
-print( paste("Remaining respondents:", nrow(labs)) )
-
-
-## ----- Question types -----
-
-general <- colnames(labs)[grepl("^Gen_", colnames(labs))]
-agree_disagree <- questions$name[
-  grepl("1 (strongly disagree) to 7 (strongly agree)", questions$question, fixed=TRUE)
-]
-always_never <- questions$name[
-  grepl("1 (never) to 7 (always)", questions$question, fixed=TRUE)
-]
-ubos <- questions$name [grepl("UBOS", questions$name, fixed=TRUE)]
-pss <- questions$name [grepl("PSS", questions$name, fixed=TRUE)]
-other <- setdiff (colnames(labs), c(general, agree_disagree, always_never, ubos, pss))
-
-
-## ----- UBOS and PSS -----
-
-ubos_levels <- find_levels(labs, vals, ubos)
-pss_levels <- find_levels(labs, vals, pss)
-
-labs[c(ubos, pss)] <- vals[c(ubos, pss)]
-
-ubos_questions <- find_questions(questions$name, questions$question, ubos)
-pss_questions <- find_questions(questions$name, questions$question, pss)
-
-ubos_U <- c(1, 3, 5, 11, 13)
-ubos_D <- c(2, 7, 8, 14)
-ubos_C <- c(4, 6, 9, 10, 12, 15)
-ubos_zero <- which(colnames(labs) == ubos[1]) - 1
-colnames(labs)[ubos_zero + ubos_U] <- paste("MH_UBOS_U", 1:length(ubos_U), sep="_")
-colnames(labs)[ubos_zero + ubos_D] <- paste("MH_UBOS_D", 1:length(ubos_D), sep="_")
-colnames(labs)[ubos_zero + ubos_C] <- paste("MH_UBOS_C", 1:length(ubos_C), sep="_")
-ubos <- colnames(labs)[ubos_zero + 1:15]
-
-positive_pss <- c(4, 5, 7, 8)
-pss_zero <- which(colnames(labs) == pss[1]) - 1
-labs[pss_zero + positive_pss] <- 4 - labs[pss_zero + positive_pss]
-
-
-question_types <- list(
-  general = general,
-  agree_disagree = agree_disagree,
-  always_never = always_never,
-  ubos = ubos,
-  pss = pss,
-  other = other
-)
-
-## ----- Factors -----
-
-factors <- list(
-  general = list_levels(labs, vals, general),
-  agree_disagree = c(1:7),
-  always_never = c(1:7),
-  ubos = ubos_levels,
-  pss = pss_levels,
-  other = list_levels(labs, vals, other)
-)
-
-metadata <- list(
-  question_types = question_types,
-  factors = factors
-)
-
-metadata$factors$other[["Sup_ActiveSup"]] <- c("Promotor", "Copromotor", "Postdoc", "Other")
-
-write_json(metadata, "./data/metadata.json", pretty=TRUE)
-write.csv(labs, "./data/cleaned_data.csv", row.names = FALSE)
 
 
 
