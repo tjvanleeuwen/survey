@@ -1,6 +1,3 @@
-
-rm(list = ls())
-
 library(cowplot)
 library(dplyr)
 library(forcats)
@@ -11,40 +8,6 @@ library(scales)
 library(tidyr)
 
 source(here("R", "utils.R"))
-
-## ----- Load data -----
-
-data <- read.csv("./data/cleaned_data.csv")
-
-metadata <- read_json("./data/metadata.json")
-
-question_types <- metadata$question_types
-factors <- metadata$factors
-
-
-assign_factors <- function(data, question_types, factors){
-  for (column_name in colnames(data)) {
-    matches <- sapply(question_types, function(v) column_name %in% v)
-    if (!any(matches)) {
-      stop(sprintf("'%s' not found in question_types", column_name))
-    }
-    
-    matched_name <- names(matches)[which(matches)[1]]
-    factor_result <- factors[[matched_name]]
-    
-    levels <- 
-    if (!is.null(names(factor_result))){
-      unlist(factor_result[[column_name]])
-    } else {
-      unlist(factor_result)
-    }
-    if (is_numeric(levels)) { levels <- as.numeric(levels) }
-    data[[column_name]] <- factor(data[[column_name]], levels)
-  }
-  return(data)
-}
-
-data <- assign_factors(data, question_types, factors)
 
 
 ## ----- Thematics -----
@@ -65,7 +28,7 @@ mc_answers <- c("Never", "", "", "", "", "", "Always")
 
 
 create_mcfig_totals <- function(
-    data, question, answers, title = question,
+    data, question, answers, title = NA,
     style = list(thematics = my_thematics, palette = my_palette)
   ) {
   if (!question %in% colnames(data))
@@ -95,7 +58,12 @@ create_mcfig_totals <- function(
       legend.title = element_blank()
     )
 
-  if (!is.na(title)) { fig <- fig + labs(title=title) }
+  if (!is.na(title)) { 
+    fig <- fig + labs(title=title) +
+      theme(
+        plot.title = element_text(size = 10)
+      )
+  }
   return(fig)
 }
 
@@ -125,7 +93,7 @@ add_nums <- function(fig, data, category){
 
 
 create_mcfig_bycategory <- function(data, question, answers, category,
-                                    nums = FALSE, title = question,
+                                    nums = FALSE, title = NA,
                                     style = list(thematics = my_thematics, 
                                                  palette = my_palette)){
   if (!question %in% colnames(data)) 
@@ -160,13 +128,18 @@ create_mcfig_bycategory <- function(data, question, answers, category,
       legend.title = element_blank()
     )
   
-  if (!is.na(title)) { fig <- fig + labs(title=title) }
+  if (!is.na(title)) { 
+    fig <- fig + labs(title=title) +
+      theme(
+        plot.title = element_text(size = 10)
+      )
+  }
   if(nums){ fig <- add_nums(fig, filtered_data, csym) }
   return (fig)
 }
 
 
-create_inline_legend <- function(plot) {
+create_inline_legend <- function(plot, answers) {
   legend <- cowplot::get_legend(
     plot + theme(
       legend.position = "bottom",
@@ -175,8 +148,11 @@ create_inline_legend <- function(plot) {
     )
   )
   
-  left_text  <- grid::textGrob("Never  ",  x = 1, hjust = 1)
-  right_text <- grid::textGrob("Always", x = 0, hjust = 0)
+  left <- paste0(answers[1], "  ")
+  right <- answers[length(answers)]
+  
+  left_text  <- grid::textGrob(left,  x = 1, hjust = 1)
+  right_text <- grid::textGrob(right, x = 0, hjust = 0)
   
   left_width  <- grid::grobWidth(left_text)
   right_width <- grid::grobWidth(right_text)
@@ -197,53 +173,99 @@ create_inline_legend <- function(plot) {
 
 create_mc_patchwork <- function(
     data, question, answers, 
-    disag_categories = c(), nums = FALSE, title = NA,
+    categories = c(), nums = FALSE, title = NA,
     style = list(thematics = my_thematics, palette = my_palette)
   ) {
   stopifnot(is.data.frame(data), length(question) == 1, length(answers) > 0)
   
+  if (is.na(title))
+    title <- question
+  
   figures <- list()
-  n_cols <- number_of_cols(1+length(disag_categories))
+  n_cols <- number_of_cols(1+length(categories))
+  n_rows <- ceiling(length(categories) / n_cols)
   
   base_plot <- create_mcfig_totals(
-    data=data, question=question, answers=answers, title=title, style=style
+    data=data, question=question, answers=answers, style=style, title="Totals"
   )
   figures[[1]] <- base_plot + theme(legend.position = "none")
+  
+  category_map <- list(
+    "Gen_Org" = "Department / Institute",
+    "Gen_PhDtype" = "Employer",
+    "Gen_Studies" = "Previous studies"
+  )
+  
+  for (k in seq_along(categories)){
+    category <- categories[k]
+    subtitle <- ifelse(
+      category %in% names(category_map),
+      category_map[[category]],
+      sub("^Gen_", "", category)
+    )
     
-  for (k in seq_along(disag_categories)){
     figures[[1+k]] <- create_mcfig_bycategory(
-      data=data, question=question, answers=answers, title=title,
-      category=disag_categories[k], style=style, nums=nums
+      data=data, question=question, answers=answers,
+      category=categories[k], style=style, nums=nums, title=subtitle
     ) + theme(legend.position = "none")
   }
   patchwork <- wrap_plots(figures, ncol=n_cols, guides="collect") + 
-    plot_layout(guides = "collect")
-  legend_row <- create_inline_legend(base_plot)
+    plot_layout(guides = "collect") + 
+    plot_annotation(title = title,
+                    theme = theme(plot.title = element_text(hjust = 0.5)))
+  
+  legend_row <- create_inline_legend(base_plot, answers)
   spacer <- grid::nullGrob()
   final_plot <- cowplot::plot_grid(
     patchwork,
     legend_row,
     spacer,
     ncol = 1,
-    rel_heights = c(1, 0.08, 0.03)
+    rel_heights = c(1, 0.08, 0.04)
   )
   
-  return(final_plot)
+  return(list(final_plot, n_cols, n_rows))
 }
 
 
-disag_cat <- question_types$general
-select <- c(2, 7, 11)
-disag_cat <- unlist(disag_cat)[select]
+find_title <- function(ques, question){
+  if (! question %in% ques$id)
+    stop("Invalid question")
+  
+  row <- ques$id == question
+  
+  if (is.na (ques$preamble[row]))
+    return(ques$short[row])
+  
+  left <- sub("\\.\\.\\.$", "", ques$preamble[row])
+  right <- sub("^\\.\\.\\.\\s", "", ques$short[row])
+  return(paste(left, right))
+}
 
-patch <- create_mc_patchwork(
-  data = data, question = "SS_PsychSafetyTeam_1", answers = mc_answers,
-  disag_categories = disag_cat, nums = TRUE
-)
 
-print(patch)
-ggsave("./figures/testfig.pdf", patch, width = 3 * 4, 
-       height = 3 * 1, dpi = 300)
+build_figure <- function(labs, ques, question, categories=c(), nums=FALSE){
+  if (! question %in% ques$id)
+    stop("Invalid question")
+  
+  answer_map <- list(
+    "disagree/agree" = c("Strongly disagree", rep("", 5), "Strongly agree"),
+    "never/always" = c("Never", rep("", 5), "Always")
+  )
+  
+  type <- ques$type[ques$id == question]
+  if (! type %in% names(answer_map))
+    stop("Invalid question type")
+  
+  answers <- answer_map[[type]]
+  
+  if (! all(categories %in% ques$id[ques$type == "general"]))
+    stop("Invalid categories")
+  
+  title <- find_title(ques, question)
+  build <- create_mc_patchwork(labs, question, answers, categories, 
+                               nums=nums, title=title)
+  return(build)
+}
 
 
 

@@ -1,6 +1,3 @@
-
-rm(list = ls())
-
 library(docstring)
 
 
@@ -142,6 +139,17 @@ shorten_answer <- function(column, short, test=FALSE){
 }
 
 
+escape_regex <- function(x){
+  #' @title Escape special characters for regular expressions
+  #' @description Escapes regular expression metacharacters in a character
+  #' vector so the values can be safely used as literal patterns in regex
+  #' functions such as `grep()`, `grepl()`, or `sub()`.
+  #' @param x A character vector that may contain regular expression
+  #' metacharacters.
+  #' @return A character vector of the same length as `x` with all regex
+  #' metacharacters escaped by a leading backslash.
+  gsub("([.|()\\^{}+$*?]|\\[|\\])", "\\\\\\1", x)
+}
 
 
 

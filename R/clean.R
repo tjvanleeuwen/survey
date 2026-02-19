@@ -1,13 +1,10 @@
-
-rm(list = ls())
-
 library(dplyr)
 library(here)
 library(janitor)
 library(jsonlite)
+library(stringr)
+library(tibble)
 
-
-## ----- Utility functions -----
 
 source(here("R", "utils.R"))
 
@@ -135,6 +132,11 @@ create_disag_columns <- function(data){
   
   labs <- labs |>
     mutate(
+      Gen_Org = replace_values(
+        Gen_Institute,
+        c("Algorithms", "Data", "Software", "Interaction") ~ "ICS",
+        c("GRASP", "IMAU", "ITP") ~ "Physics"
+      ),
       Gen_FTE = ifelse(Gen_PhDfulltime. == "Full-time", 
                                 1, Gen_PhDparttime._1),
       Gen_Gender = ifelse(Gen_Gender == "Male", "Majority", "Minority"),
@@ -143,6 +145,7 @@ create_disag_columns <- function(data){
                          breaks=c(0, 0.25, 0.5, 0.75, 10),
                          labels=c("<25%", "25%-50%", "50%-75%", ">75%"))
     ) |>
+    relocate(Gen_Org, .after = Gen_Institute) |>
     relocate(Gen_FTE, .after = Gen_PhDparttime._1) |>
     relocate(Gen_Nationality, .after = Gen_Nation) |>
     relocate(Gen_Progress, .after = Gen_PhDyear_1) |>
@@ -151,11 +154,17 @@ create_disag_columns <- function(data){
   
   vals <- vals |>
     mutate(
+      Gen_Org = replace_values(
+        Gen_Institute,
+        c(1:4) ~ 1,
+        c(7:9) ~ 7
+      ),
       Gen_FTE = labs$Gen_FTE,
       Gen_Gender = ifelse(labs$Gen_Gender == "Minority", 1, 2),
       Gen_Nationality = ifelse(labs$Gen_Nationality == "Yes", 1, 2),
       Gen_Progress = as.integer(labs$Gen_Progress)
     ) |>
+    relocate(Gen_Org, .after = Gen_Institute) |>
     relocate(Gen_FTE, .after = Gen_PhDparttime._1) |>
     relocate(Gen_Nationality, .after = Gen_Nation) |>
     relocate(Gen_Progress, .after = Gen_PhDyear_1) |>
@@ -164,10 +173,12 @@ create_disag_columns <- function(data){
   
   ques <- ques |>
     mutate(
+      Gen_Org = "What department / institute do you belong to?",
       Gen_Nation = "Do you have a Dutch nationality?"
     ) |>
     rename(!!!setNames(c("Gen_PhDparttime._1", "Gen_PhDyear_1", "Gen_Nation"), 
                        c("Gen_FTE", "Gen_Progress", "Gen_Nationality"))) |>
+    relocate(Gen_Org, .after = Gen_Institute) |>
     select(-Gen_PhDfulltime., -Gen_PhDtrack)
   
   return(list(labs, vals, ques))
@@ -203,79 +214,128 @@ remove_and_write <- function(data){
 }
 
 
-rename_ubos_df <- function(df, prefix = "MH_UBOS") {
-  ubos_cols <- grep("UBOS", colnames(df))
-  if(length(ubos_cols) == 0) return(df)
-  
-  ubos_U <- c(1, 3, 5, 11, 13)
-  ubos_D <- c(2, 7, 8, 14)
-  ubos_C <- c(4, 6, 9, 10, 12, 15)
-  
-  ubos_zero <- ubos_cols[1] - 1
-  
-  colnames(df)[ubos_zero + ubos_U] <- paste(prefix, "U", seq_along(ubos_U), sep = "_")
-  colnames(df)[ubos_zero + ubos_D] <- paste(prefix, "D", seq_along(ubos_D), sep = "_")
-  colnames(df)[ubos_zero + ubos_C] <- paste(prefix, "C", seq_along(ubos_C), sep = "_")
-  
-  return(df)
-}
 rename_ubos <- function(data){
-  return(lapply(data, rename_ubos_df))
+  prefix = "MH_UBOS"
+  for (i in seq_along(data)){
+    ubos_cols <- grep("UBOS", colnames(data[[i]]))
+    
+    ubos_U <- c(1, 3, 5, 11, 13)
+    ubos_D <- c(2, 7, 8, 14)
+    ubos_C <- c(4, 6, 9, 10, 12, 15)
+    
+    ubos_zero <- ubos_cols[1] - 1
+    
+    colnames(data[[i]])[ubos_zero + ubos_U] <- 
+      paste(prefix, "U", seq_along(ubos_U), sep = "_")
+    colnames(data[[i]])[ubos_zero + ubos_D] <- 
+      paste(prefix, "D", seq_along(ubos_D), sep = "_")
+    colnames(data[[i]])[ubos_zero + ubos_C] <- 
+      paste(prefix, "C", seq_along(ubos_C), sep = "_")
+  }
+  return(data)
 }
 
 
 
 ## ----- Clean questions -----
 
-select_upto_qm <- function(ques, names, test=FALSE){
-  if (length(names) == 1) {names <- c(names)}
-  for (name in names) {
-    target_question <- ques$name == name
-    question <- ques$question[target_question]
-    result <- sub("^([^?]*\\?).*", "\\1", question)
-    if (test) print(result)
-    ques$question[target_question] <- result
-  }
-  return(ques)
-}
 
-remove_inbrackets <- function(ques){
-  gsub("\\s*\\([^)]*\\)", "", ques)
-}
-
-set_type_row <- function(df, row, type_row, pattern, value) {
-  cols <- grepl(pattern, row, fixed=TRUE)
-  df[type_row, cols] <- value
-  return(df)
-}
-
-sort_questions <- function(data) {
+reformat_questions <- function(data){
   labs <- data[[1]]
   vals <- data[[2]]
   ques <- data[[3]]
   
+  ## transpose dataframe
   ques <- ques |> 
     mutate(id = "question") |> 
-    relocate(id) |>
-    add_row(id = "type") |>
-    add_row(id = "preamble")
+    relocate(id)
+  rownames(ques) <- NULL
+  ques <- ques |>
+    column_to_rownames("id") |>
+    t() |>
+    as.data.frame() |>
+    rownames_to_column("id")
   
-  name_patterns <- c("^Gen_", "UBOS", "PSS")
-  name_types <- c("general", "ubos", "pss")
+  ## assign types
+  ques <- ques |> mutate(
+    type = ifelse(
+      grepl("^Gen_", id), "general",
+      ifelse(grepl("UBOS", id), "ubos",
+             ifelse(grepl("PSS", id), "pss", NA))),
+    type = ifelse(
+      grepl("1 (strongly disagree)", question, fixed=TRUE), "disagree/agree",
+      ifelse(grepl("1 (never)", question, fixed=TRUE), "never/always",
+             ifelse(is.na(type), "other", type))
+    )
+  )
+  return(list(labs, vals, ques))
+}
+
+
+select_upto_qm <- function(questions, test=FALSE){
+  for (i in seq_along(questions)){
+    questions[i] <- sub("^([^?]*\\?).*", "\\1", questions[i])
+  }
+  return(questions)
+}
+
+remove_inbrackets <- function(questions, test = FALSE) {
+  matches <- regmatches(questions, gregexpr("\\([^)]*\\)", questions))
+  if (test) {
+    removed <- sapply(matches, function(x) {
+      if(length(x)) paste(x, collapse = "; ") else ""
+    })
+    print(removed)
+  }
+  gsub("\\s*\\([^)]*\\)", "", questions)
+}
+
+remove_intro <- function(col){
+  markers <- c(
+    "(not applicable).", "'Not applicable'.", "'I don't know'. ",
+    "(strongly agree). ", "(always). ", "appropriate category. ",
+    "a certain way.", "skip this question. "
+  )
+  for (marker in markers){
+    marker_esc <- escape_regex(marker)
+    pattern <- paste0("(?s)^.*?", marker_esc, "\\.?\\s*")
+    for (i in seq_along(col)){
+      col[i] <- sub(pattern, "", col[i], perl = TRUE)
+    }
+  }
+  return(col)
+}
+
+
+clean_questions <- function(data){
+  labs <- data[[1]]
+  vals <- data[[2]]
+  ques <- data[[3]]
   
-  ques_patterns <- c("1 (strongly disagree) to 7 (strongly agree)",
-                "1 (never) to 7 (always)")
-  ques_types <- c("disagree/agree", "never/always")
+  ques <- ques |> mutate(
+    question = gsub("\u2026", "\\.\\.\\.", question),
+    question = gsub("\\s+", " ", question),
+    question = trimws(question),
+    short = ifelse(
+      type %in% c("general", "other"), 
+      select_upto_qm(question),
+      remove_intro(question)
+    ),
+    short = remove_inbrackets(short)
+  )
   
-  type_row <- which(ques$id == "type")
+  pattern <- "\\.\\.\\.\\s-\\s\\.\\.\\."
   
-  for (i in seq_along(name_patterns))
-    ques <- set_type_row(ques, colnames(ques), type_row, 
-                         name_patterns[i], name_types[i])
-  for (i in seq_along(ques_patterns))
-    ques <- set_type_row(ques, ques[ques$id == "question", ], type_row, 
-                         ques_patterns[i], ques_types[i])
-  ques[type_row, is.na(ques[type_row, ])] <- "other"
+  ques <- ques |> mutate(
+    preamble = ifelse(
+      grepl(pattern, short), sub("\\s-\\s\\.\\.\\..*", "", short), NA
+    ),
+    preamble = sub("\\s\\.\\.\\.", "\\.\\.\\.", preamble),
+    short = ifelse(
+      grepl(pattern, short), sub(".*\\.\\.\\.\\s-\\s", "", short), short
+    ),
+    short = sub("^\\s*-\\s*", "", short)
+  )
   
   return(list(labs, vals, ques))
 }
@@ -308,27 +368,25 @@ factorise <- function(data){
   vals <- data[[2]]
   ques <- data[[3]]
   
-  if (! "id" %in% colnames(ques)) 
-    stop("No id column in questions dataframe")
-  
-  type_row = which(ques$id == "type")
-  
-  if (any(is.na(ques[type_row, ])))
-    stop("Missing types")
-  
-  individual_cols <- colnames(ques)[ques[type_row, ] %in% c("general", "other")]
-  likert_cols <- colnames(ques)[ques[type_row, ] %in% 
-                              c("disagree/agree", "never/always")]
-  
-  for (col in individual_cols){
+  for (col in ques$id[ques$type %in% c("general", "other")]){
     labs[[col]] <- factor(labs[[col]], find_levels(labs, vals, col))
   }
-  for (col in likert_cols){
-    labs[[col]] <- factor(labs[[col]], 1:7)
-  }
+  ## one is off for some reason
   labs[["Sup_ActiveSup"]] <- 
     factor(labs[["Sup_ActiveSup"]], 
            c("Promotor", "Copromotor", "Postdoc", "Other"))
+  
+  ## some UBOS or PSS questions don't contain all categories
+  for (type in c("ubos", "pss")){
+    cols <- ques$id[ques$type == type]
+    for (col in cols){
+      labs[[col]] <- factor(labs[[col]], find_levels(labs, vals, cols))
+    }
+  }
+  
+  for (col in ques$id[ques$type %in% c("disagree/agree", "never/always")]){
+    labs[[col]] <- factor(labs[[col]], 1:7)
+  }
   
   return(list(labs, vals, ques))
 }
@@ -342,7 +400,7 @@ factorise <- function(data){
 
 ## ----- Final -----
 
-clean <- function(data){
+clean <- function(data, cutoff=20){
   ## clean data
   data <- fix_other_dept(data)
   data <- remove_test_question(data)
@@ -351,9 +409,10 @@ clean <- function(data){
   data <- remove_and_write(data)
   data <- rename_ubos(data)
   ## clean questions
-  data <- sort_questions(data)
+  data <- reformat_questions(data)
+  data <- clean_questions(data)
   ## prime data
-  data <- select_data(data)
+  data <- select_data(data, cutoff=cutoff)
   data <- factorise(data)
   return(data)
 }
