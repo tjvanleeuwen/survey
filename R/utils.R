@@ -74,28 +74,40 @@ coerce_factor <- function(col) {
 }
 
 
-number_of_cols <- function(n) {
-  #' @title Determine best number of columns for layout
-  #' @description Chooses the optimal number of columns to arrange `n` items 
-  #'   in a visually balanced grid. Prefers layouts divisible by 4, then 5, 
-  #'   then 3. If `n` is not divisible by any, returns the number (4, 5, or 3) 
-  #'   that maximizes the remainder (`n %% k`) to minimize leftover items in 
-  #'   the last row.
-  #' @param n A single numeric value specifying the total number of items.
-  #' @return An integer indicating the recommended number of columns.
-  
+dimensions <- function(n) {
+  #' @title Determine grid dimensions from a single number
+  #' @description Computes a pair of dimensions (columns and rows) for arranging
+  #' items in a grid based on a single numeric input. The function prioritizes
+  #' column counts of 4, 5, or 3 (in that order) when evenly divisible. If no
+  #' exact division is possible, it selects the column count that maximizes the
+  #' remainder and rounds up the number of rows.
+  #' @param n A single numeric value indicating the total number of items.
+  #' @return A list of length two containing the number of columns and rows.
   stopifnot(length(n) == 1, is_numeric(n))
   
   n <- as.numeric(n)
-  if(n < 3) return(n)
+  if(n < 3) return(list(col = n, row = 1))
   
   candidates <- c(4, 5, 3)
   divisible <- candidates[n %% candidates == 0]
-  if(length(divisible) > 0) return(divisible[1])
+  if(length(divisible) > 0) {
+    n_cols <- divisible[1]
+    return(list(col = n_cols, row = n / n_cols))
+  }
   
   remainders <- n %% candidates
-  best <- candidates[which.max(remainders)]
-  return(best)
+  n_cols <- candidates[which.max(remainders)]
+  return(list(col = n_cols, row = ceiling(n / n_cols)))
+}
+
+
+grob_dimensions <- function(grob){
+  x <- grid::convertWidth(grid::grobWidth(grob), "in", valueOnly = TRUE)
+  y <- grid::convertHeight(grid::grobHeight(grob), "in", valueOnly = TRUE)
+  return(list(
+    width = as.numeric(x),
+    height = as.numeric(y)
+  ))
 }
 
 
@@ -152,8 +164,38 @@ escape_regex <- function(x){
 }
 
 
+get_patchwork_title_width <- function(pw) {
+  pw_grob <- patchwork::patchworkGrob(pw)
+  
+  title_idx <- which(pw_grob$layout$name == "title")
+  if(length(title_idx) == 0) {
+    stop("No title found in this patchwork object")
+  }
+  
+  title_grob <- pw_grob$grobs[[title_idx]]
+  
+  # ensure a graphics device is open
+  if (grDevices::dev.cur() == 1) grid::grid.newpage()
+  
+  title_width <- grid::convertWidth(grid::grobWidth(title_grob), "in", 
+                                    valueOnly = TRUE)
+  return(title_width)
+}
 
 
+find_title <- function(ques, question){
+  if (! question %in% ques$id)
+    stop("Invalid question")
+  
+  row <- ques$id == question
+  
+  if (is.na (ques$preamble[row]))
+    return(ques$short[row])
+  
+  left <- sub("\\.\\.\\.$", "", ques$preamble[row])
+  right <- sub("^\\.\\.\\.\\s", "", ques$short[row])
+  return(paste(left, right))
+}
 
 
 

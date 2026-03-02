@@ -1,12 +1,9 @@
-library(dplyr)
-library(here)
+
+library(tidyverse)
 library(janitor)
-library(jsonlite)
-library(stringr)
-library(tibble)
 
 
-source(here("R", "utils.R"))
+source(here::here("R", "utils.R"))
 
 ## ----- Read data -----
 

@@ -1,13 +1,9 @@
-library(cowplot)
-library(dplyr)
-library(forcats)
-library(ggplot2)
-library(jsonlite)
+
+library(tidyverse)
 library(rlang)
 library(scales)
-library(tidyr)
 
-source(here("R", "utils.R"))
+source(here::here("R", "utils.R"))
 
 
 ## ----- Thematics -----
@@ -27,7 +23,7 @@ mc_answers <- c("Never", "", "", "", "", "", "Always")
 ## ----- Functions -----
 
 
-create_mcfig_totals <- function(
+create_fig_totals <- function(
     data, question, answers, title = NA,
     style = list(thematics = my_thematics, palette = my_palette)
   ) {
@@ -92,7 +88,29 @@ add_nums <- function(fig, data, category){
 }
 
 
-create_mcfig_bycategory <- function(data, question, answers, category,
+chat_add_nums <- function(fig, data, category) {
+  
+  totals <- data |>
+    count({{ category }}, name = "n_total")
+  
+  fig +
+    coord_cartesian(clip = "off") +
+    geom_text(
+      data = totals,
+      aes(
+        y = fct_rev({{ category }}),
+        x = Inf,
+        label = paste0(" (", n_total, ")")
+      ),
+      inherit.aes = FALSE,
+      hjust = -0.1,
+      size = 2
+    )
+}
+
+
+
+create_fig_bycategory <- function(data, question, answers, category,
                                     nums = FALSE, title = NA,
                                     style = list(thematics = my_thematics, 
                                                  palette = my_palette)){
@@ -134,7 +152,7 @@ create_mcfig_bycategory <- function(data, question, answers, category,
         plot.title = element_text(size = 10)
       )
   }
-  if(nums){ fig <- add_nums(fig, filtered_data, csym) }
+  if(nums){ fig <- chat_add_nums(fig, filtered_data, !!sym(category)) }
   return (fig)
 }
 
@@ -171,22 +189,35 @@ create_inline_legend <- function(plot, answers) {
 }
 
 
-create_mc_patchwork <- function(
-    data, question, answers, 
-    categories = c(), nums = FALSE, title = NA,
-    style = list(thematics = my_thematics, palette = my_palette)
-  ) {
+
+create_patchwork <- function(
+    data, 
+    question, 
+    answers, 
+    categories = c(), 
+    nums = FALSE, 
+    title = NA,
+    style = list(
+      thematics = my_thematics, 
+      palette = my_palette
+    ),
+    panel_size = 3,
+    spacer = 0.2
+) {
   stopifnot(is.data.frame(data), length(question) == 1, length(answers) > 0)
   
-  if (is.na(title))
+  if (is.null(title) || is.na(title))
     title <- question
   
   figures <- list()
-  n_cols <- number_of_cols(1+length(categories))
-  n_rows <- ceiling(length(categories) / n_cols)
+  dims <- dimensions(1 + length(categories))
   
-  base_plot <- create_mcfig_totals(
-    data=data, question=question, answers=answers, style=style, title="Totals"
+  base_plot <- create_fig_totals(
+    data = data, 
+    question = question, 
+    answers = answers, 
+    style = style, 
+    title = "Totals"
   )
   figures[[1]] <- base_plot + theme(legend.position = "none")
   
@@ -196,54 +227,83 @@ create_mc_patchwork <- function(
     "Gen_Studies" = "Previous studies"
   )
   
-  for (k in seq_along(categories)){
+  for (k in seq_along(categories)) {
     category <- categories[k]
     subtitle <- ifelse(
       category %in% names(category_map),
       category_map[[category]],
       sub("^Gen_", "", category)
     )
-    
-    figures[[1+k]] <- create_mcfig_bycategory(
-      data=data, question=question, answers=answers,
-      category=categories[k], style=style, nums=nums, title=subtitle
+    figures[[1 + k]] <- create_fig_bycategory(
+      data = data, 
+      question = question, 
+      answers = answers,
+      category = category, 
+      style = style, 
+      nums = nums, 
+      title = subtitle
     ) + theme(legend.position = "none")
   }
-  patchwork <- wrap_plots(figures, ncol=n_cols, guides="collect") + 
-    plot_layout(guides = "collect") + 
-    plot_annotation(title = title,
-                    theme = theme(plot.title = element_text(hjust = 0.5)))
   
-  legend_row <- create_inline_legend(base_plot, answers)
-  spacer <- grid::nullGrob()
-  final_plot <- cowplot::plot_grid(
-    patchwork,
-    legend_row,
-    spacer,
-    ncol = 1,
-    rel_heights = c(1, 0.08, 0.04)
+  patchwork_plot <- patchwork::wrap_plots(
+    figures,
+    ncol = dims$col
+  ) +
+    patchwork::plot_layout(
+      widths  = rep(panel_size, dims$col),
+      heights = rep(panel_size, dims$row)
+    ) +
+    patchwork::plot_annotation(
+      title = title,
+      theme = theme(plot.title = element_text(hjust = 0.5))
+    )
+  
+  patchwork_width <- panel_size * dims$col
+  patchwork_height <- panel_size * dims$row
+  
+  title_grob <- grid::textGrob(title, gp = grid::gpar(fontsize = 14))
+  title_dims <- grob_dimensions(title_grob)
+  
+  legend_grob <- create_inline_legend(base_plot, answers)
+  legend_dims <- grob_dimensions(legend_grob)
+  
+  total_width <- max(patchwork_width, 
+                     max(title_dims$width, legend_dims$width) + spacer)
+  horizontal_padding <- max((total_width - patchwork_width) / 2, 0)
+  
+  panels_centered <- cowplot::plot_grid(
+    grid::nullGrob(),
+    patchwork_plot,
+    grid::nullGrob(),
+    ncol = 3,
+    rel_widths = c(horizontal_padding, patchwork_width, horizontal_padding + spacer)
   )
   
-  return(list(final_plot, n_cols, n_rows))
+  patchwork_with_title <- patchwork_plot + 
+    patchwork::plot_annotation(
+      title = title,
+      theme = theme(plot.title = element_text(hjust = 0.5))
+    )
+  
+  final_plot <- cowplot::plot_grid(
+    panels_centered,
+    legend_grob,
+    grid::nullGrob(),
+    ncol = 1,
+    rel_heights = c(patchwork_height + title_dims$height, legend_dims$height, spacer)
+  )
+  
+  total_height <- patchwork_height + title_dims$height + legend_dims$height + spacer
+  
+  return(list(
+    plot = final_plot,
+    width = total_width,
+    height = total_height
+  ))
 }
 
 
-find_title <- function(ques, question){
-  if (! question %in% ques$id)
-    stop("Invalid question")
-  
-  row <- ques$id == question
-  
-  if (is.na (ques$preamble[row]))
-    return(ques$short[row])
-  
-  left <- sub("\\.\\.\\.$", "", ques$preamble[row])
-  right <- sub("^\\.\\.\\.\\s", "", ques$short[row])
-  return(paste(left, right))
-}
-
-
-build_figure <- function(labs, ques, question, categories=c(), nums=FALSE){
+build_figure <- function(labs, ques, question, categories=c(), nums=F){
   if (! question %in% ques$id)
     stop("Invalid question")
   
@@ -262,9 +322,8 @@ build_figure <- function(labs, ques, question, categories=c(), nums=FALSE){
     stop("Invalid categories")
   
   title <- find_title(ques, question)
-  build <- create_mc_patchwork(labs, question, answers, categories, 
-                               nums=nums, title=title)
-  return(build)
+  return(create_patchwork(labs, question, answers, categories, 
+                          nums=nums, title=title))
 }
 
 
