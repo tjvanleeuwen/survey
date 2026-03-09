@@ -101,13 +101,10 @@ dimensions <- function(n) {
 }
 
 
-grob_dimensions <- function(grob){
-  x <- grid::convertWidth(grid::grobWidth(grob), "in", valueOnly = TRUE)
-  y <- grid::convertHeight(grid::grobHeight(grob), "in", valueOnly = TRUE)
-  return(list(
-    width = as.numeric(x),
-    height = as.numeric(y)
-  ))
+grob_dimensions <- function(grob_width, grob_height){
+  x <- grid::convertWidth(grob_width, unitTo = "in", valueOnly = TRUE)
+  y <- grid::convertHeight(grob_height, unitTo = "in", valueOnly = TRUE)
+  return(list(width = as.numeric(x), height = as.numeric(y)))
 }
 
 
@@ -198,7 +195,101 @@ find_title <- function(ques, question){
 }
 
 
+add_nums <- function(fig, data, category, fontsize = 8) {
+  totals <- data |>
+    count({{ category }}, name = "n_total")
+  
+  fig +
+    coord_cartesian(clip = "off") +
+    geom_text(
+      data = totals,
+      aes(
+        y = fct_rev({{ category }}),
+        x = Inf,
+        label = paste0(" (", n_total, ")")
+      ),
+      inherit.aes = FALSE,
+      hjust = -0.1,
+      size = fontsize * 0.3528
+    )
+}
 
+
+create_inline_legend <- function(plot, answers, fontsize=12) {
+  legend <- cowplot::get_legend(
+    plot + theme(
+      legend.position = "bottom",
+      legend.box.margin = margin(0, 0, 0, 0),
+      legend.margin = margin(0, 0, 0, 0)
+    )
+  )
+  
+  left <- paste0(answers[1], "  ")
+  right <- answers[length(answers)]
+  
+  left_text  <- grid::textGrob(left,  x = 1, hjust = 1, 
+                               gp = grid::gpar(fontsize = fontsize))
+  right_text <- grid::textGrob(right, x = 0, hjust = 0, 
+                               gp = grid::gpar(fontsize = fontsize))
+  
+  left_width  <- grid::grobWidth(left_text)
+  right_width <- grid::grobWidth(right_text)
+  legend_width <- grid::grobWidth(legend)
+  
+  gt <- gtable::gtable(
+    widths = grid::unit.c(left_width, legend_width, right_width),
+    heights = grid::unit(1, "grobheight", legend)
+  )
+  
+  gt <- gtable::gtable_add_grob(gt, left_text, 1, 1)
+  gt <- gtable::gtable_add_grob(gt, legend, 1, 2)
+  gt <- gtable::gtable_add_grob(gt, right_text, 1, 3)
+  
+  return(gt)
+}
+
+
+
+measure_text <- function(txt, fontsize){
+  if (is.null(txt)) return(list(width = 0, height = 0))
+  txt_grob <- grid::textGrob(txt, gp = grid::gpar(fontsize = fontsize))
+  width <- grid::convertWidth(grid::grobWidth(txt_grob), "in", valueOnly = TRUE)
+  height <- grid::convertHeight(grid::grobHeight(txt_grob), "in", valueOnly = TRUE)
+  return(list(width = width, height = height))
+}
+
+
+width_to_spaces <- function(width, fontsize) {
+  space_grob <- grid::textGrob(" ", gp = grid::gpar(fontsize = fontsize))
+  space_width <- grid::convertWidth(grid::grobWidth(space_grob), "in", valueOnly = TRUE)
+  n_spaces <- ceiling(width / space_width)
+  return(n_spaces)
+}
+
+
+splitstring <- function(string, max_char = 50, coll = "\n"){
+  paste(strwrap(string, max_char), collapse = coll)
+}
+
+add_padding <- function(string, padding, fontsize = 11, right = TRUE) {
+  if (padding == 0) return(string)
+  
+  n_spaces <- width_to_spaces(padding, fontsize = fontsize)
+  
+  named_string <- vapply(string, function(s) {
+    lines <- strsplit(s, "\n")[[1]]
+    
+    if (right) {
+      lines <- paste0(lines, strrep(" ", n_spaces))
+    } else {
+      lines <- paste0(strrep(" ", n_spaces), lines)
+    }
+    
+    paste(lines, collapse = "\n")
+  }, character(1))
+  
+  return(unname(named_string))
+}
 
 
 

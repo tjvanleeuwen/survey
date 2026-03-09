@@ -253,6 +253,17 @@ reformat_questions <- function(data){
     as.data.frame() |>
     rownames_to_column("id")
   
+  ques <- ques |>
+    extract(
+      id,
+      into = c("base", "number"),
+      regex = "^(.+)_([0-9]+)$",
+      remove = FALSE
+    ) |>
+    mutate(number = as.integer(number)) |>
+    relocate(base, .before = question) |>
+    relocate(number, .before = question)
+  
   ## assign types
   ques <- ques |> mutate(
     type = ifelse(
@@ -264,27 +275,27 @@ reformat_questions <- function(data){
       ifelse(grepl("1 (never)", question, fixed=TRUE), "never/always",
              ifelse(is.na(type), "other", type))
     )
-  )
+  ) |>
+    relocate(type, .before = question)
   return(list(labs, vals, ques))
 }
 
 
-select_upto_qm <- function(questions, test=FALSE){
-  for (i in seq_along(questions)){
-    questions[i] <- sub("^([^?]*\\?).*", "\\1", questions[i])
-  }
-  return(questions)
-}
+# select_upto_qm <- function(questions){
+#   # for (i in seq_along(questions)){
+#   #   questions[i] <- sub("^([^?]*\\?).*", "\\1", questions[i])
+#   # }
+#   # return(questions)
+#   sub("^([^?]*\\?).*", "\\1", questions)
+# }
 
-remove_inbrackets <- function(questions, test = FALSE) {
-  matches <- regmatches(questions, gregexpr("\\([^)]*\\)", questions))
-  if (test) {
-    removed <- sapply(matches, function(x) {
-      if(length(x)) paste(x, collapse = "; ") else ""
-    })
-    print(removed)
-  }
-  gsub("\\s*\\([^)]*\\)", "", questions)
+# remove_inbrackets <- function(questions, test = FALSE) {
+#   # matches <- regmatches(questions, gregexpr("\\([^)]*\\)", questions))
+#   gsub("\\s*\\([^)]*\\)", "", questions)
+# }
+
+remove_indashes <- function(questions, test = FALSE){
+  gsub(" - .*? - ", " ", questions)
 }
 
 remove_intro <- function(col){
@@ -315,24 +326,28 @@ clean_questions <- function(data){
     question = trimws(question),
     short = ifelse(
       type %in% c("general", "other"), 
-      select_upto_qm(question),
+      sub("^([^?]*\\?).*", "\\1", question),
       remove_intro(question)
     ),
-    short = remove_inbrackets(short)
+    short = gsub("\\s*\\([^)]*\\)", "", short)
   )
   
   pattern <- "\\.\\.\\.\\s-\\s\\.\\.\\."
   
-  ques <- ques |> mutate(
-    preamble = ifelse(
-      grepl(pattern, short), sub("\\s-\\s\\.\\.\\..*", "", short), NA
-    ),
-    preamble = sub("\\s\\.\\.\\.", "\\.\\.\\.", preamble),
-    short = ifelse(
-      grepl(pattern, short), sub(".*\\.\\.\\.\\s-\\s", "", short), short
-    ),
-    short = sub("^\\s*-\\s*", "", short)
-  )
+  ques <- ques |> 
+    mutate(
+      preamble = ifelse(
+        grepl(pattern, short), sub("\\s-\\s\\.\\.\\..*", "", short), NA
+      ),
+      preamble = sub("\\s\\.\\.\\.", "\\.\\.\\.", preamble),
+      preamble = sub(" - .*? - ", " ", preamble),
+      short = ifelse(
+        grepl(pattern, short), sub(".*\\.\\.\\.\\s-\\s", "", short), short
+      ),
+      short = sub("^\\s*-\\s*", "", short)
+    ) |>
+    relocate(short, .before=question) |>
+    relocate(preamble, .before=question)
   
   return(list(labs, vals, ques))
 }
