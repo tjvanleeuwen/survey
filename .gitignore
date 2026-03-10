@@ -9,6 +9,9 @@ figures/*
 data/*
 !data/.gitkeep
 
+# README output
+README.html
+
 # Renv 
 renv/*
 
