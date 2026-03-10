@@ -53,24 +53,7 @@ if(T){
 
 
 
-source("../fig_types.R")
 
-
-generate_figures <- function(type_list, k){
-  if (k > length(type_list$bases))
-    stop("Base index out of bounds!")
-  
-  base <- type_list$bases[k]
-  for (i in seq_along(type_list$categories)){
-    category <- type_list$categories[i]
-    filename <- paste0("./figures/fig_", k, "_", i, ".pdf")
-    build <- build_bybase(labs, ques, base, category)
-    ggsave(filename, build$fig, width = build$width, 
-           height=build$height, dpi = 300)
-  }
-}
-
-generate_figures(workload, 1)
 
 
 
