@@ -27,9 +27,10 @@ likert_answer_map <- list(
 )
 
 category_map <- list(
-  "Gen_Org" = "Department / Institute",
+  "Gen_Org" = "Department / institute",
   "Gen_PhDtype" = "Employer",
-  "Gen_Studies" = "Previous studies"
+  "Gen_Studies" = "Previous studies",
+  "Gen_Nationality" = "Dutch nationality"
 )
 
 base_title_map <- list(

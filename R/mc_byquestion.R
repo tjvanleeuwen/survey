@@ -3,8 +3,8 @@ library(tidyverse)
 library(rlang)
 library(scales)
 
-source(here::here("R", "utils.R"))
-source(here::here("R", "settings.R"))
+source("./R/utils.R")
+source("./R/settings.R")
 
 
 ## ----- create individual plots -----
@@ -123,11 +123,7 @@ list_figures <- function(
   
   for (k in seq_along(categories)) {
     category <- categories[k]
-    subtitle <- ifelse(
-      category %in% names(category_map),
-      category_map[[category]],
-      sub("^Gen_", "", category)
-    )
+    subtitle <- find_subtitle(category)
     figures[[1 + k]] <- create_fig_bycategory(
       category = category, 
       num_font = num_font, 

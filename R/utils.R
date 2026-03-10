@@ -108,6 +108,14 @@ grob_dimensions <- function(grob_width, grob_height){
 }
 
 
+find_subtitle <- function(category){
+  if (is.null(category)) return("Totals")
+  if (category %in% names(category_map)) 
+    return(category_map[[category]])
+  return(gsub("^Gen_", "", category))
+}
+
+
 show_cols <- function(lst){
   #' @title Display list elements as equal-length tibble columns
   #' @description This function takes a list of vectors and ensures that all

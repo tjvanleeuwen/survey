@@ -3,8 +3,8 @@ library(tidyverse)
 library(rlang)
 library(scales)
 
-source(here::here("R", "utils.R"))
-source(here::here("R", "settings.R"))
+source("./R/utils.R")
+source("./R/settings.R")
 
 
 split_and_pad <- function(preamble, yaxis, max_char = 50, fontsize = 11){
@@ -312,6 +312,13 @@ build_bybase <- function(
   if (is.na(preamble)) { preamble <- NULL }
   
   title = base_title_map[[base]]
+  
+  if (!is.null(category)){
+    cat_title <- tolower(find_subtitle(category))
+    if (cat_title == "dutch nationality")
+      cat_title <- "Dutch nationality"
+    title = paste(title, "by", cat_title)
+  }
 
   return(create_patchwork_bybase(
     data = data,

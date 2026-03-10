@@ -3,7 +3,7 @@ library(tidyverse)
 library(janitor)
 
 
-source(here::here("R", "utils.R"))
+source("./R/utils.R")
 
 ## ----- Read data -----
 
@@ -278,24 +278,6 @@ reformat_questions <- function(data){
   ) |>
     relocate(type, .before = question)
   return(list(labs, vals, ques))
-}
-
-
-# select_upto_qm <- function(questions){
-#   # for (i in seq_along(questions)){
-#   #   questions[i] <- sub("^([^?]*\\?).*", "\\1", questions[i])
-#   # }
-#   # return(questions)
-#   sub("^([^?]*\\?).*", "\\1", questions)
-# }
-
-# remove_inbrackets <- function(questions, test = FALSE) {
-#   # matches <- regmatches(questions, gregexpr("\\([^)]*\\)", questions))
-#   gsub("\\s*\\([^)]*\\)", "", questions)
-# }
-
-remove_indashes <- function(questions, test = FALSE){
-  gsub(" - .*? - ", " ", questions)
 }
 
 remove_intro <- function(col){
