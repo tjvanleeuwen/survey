@@ -12,11 +12,17 @@ source("./R/settings.R")
 create_fig_totals <- function(
     data, 
     question, 
-    answers, 
+    n_answers = 7, 
     title = NULL,
     style = list(
-      thematics = theme_minimal(), 
+      thematics = theme_minimal(),
       palette = "Spectral"
+    ),
+    fonts = list(
+      title = 12,
+      subtitle = 11,
+      axis = 10,
+      nums = 5
     )
   ) {
   if (!question %in% colnames(data))
@@ -34,16 +40,19 @@ create_fig_totals <- function(
     aes(x=!!qsym, y=n, fill=!!qsym) +
     geom_col() +
 
-    scale_x_discrete(drop = FALSE, labels=answers) +
     scale_fill_brewer(
       palette = style$palette, 
-      labels = rep("", length(answers)), 
+      labels = rep("", n_answers), 
       drop = FALSE, 
       guide = guide_legend (nrow = 1)
     ) +
     labs(title = title) +
     style$thematics +
-    theme(legend.position = "bottom")
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = fonts$subtitle, hjust = 0.5),
+      axis.text = element_text(size = fonts$axis)
+    )
   
   return(fig)
 }
@@ -51,13 +60,18 @@ create_fig_totals <- function(
 create_fig_bycategory <- function(
     data, 
     question, 
-    answers, 
     category,
-    num_font = NULL, 
+    n_answers = 7,
     title = NULL,
     style = list(
-      thematics = theme_minimal(), 
+      thematics = theme_minimal(),
       palette = "Spectral"
+    ),
+    fonts = list(
+      title = 12,
+      subtitle = 11,
+      axis = 10,
+      nums = 5
     )
   ) {
   if (!question %in% colnames(data)) 
@@ -86,22 +100,24 @@ create_fig_bycategory <- function(
     scale_x_continuous(labels = percent_format(accuracy = 1)) +
     scale_fill_brewer(
       palette = style$palette, 
-      labels = rep("", length(answers)),
+      labels = rep("", n_answers),
       guide = guide_legend(nrow = 1),
       direction = -1
     ) +
     labs(title = title) +
     style$thematics + 
-    theme(legend.position = "bottom")
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = fonts$subtitle, hjust = 0.5),
+      axis.text = element_text(size = fonts$axis)
+    )
   
-  if(!is.null(num_font)){ 
-    fig <- add_nums(
-      fig = fig, 
-      data = filtered_data, 
-      category = !!sym(category), 
-      fontsize = num_font
-    ) 
-  }
+  fig <- add_nums(
+    fig = fig,
+    yaxis = fct_rev(data[[category]]),
+    fontsize = fonts$nums
+  )
+  
   return (fig)
 }
 
@@ -109,26 +125,42 @@ create_fig_bycategory <- function(
 ## ----- create patchwork figure -----
 
 list_figures <- function(
-    categories = c(), 
-    num_font = NULL,
-    ...
+    data,
+    question,
+    categories,
+    n_answers = 7,
+    style = list(
+      thematics = theme_minimal(),
+      palette = "Spectral"
+    ),
+    fonts = list(
+      title = 12,
+      subtitle = 11,
+      axis = 10,
+      nums = 5
+    )
   ){
   
   figures <- list()
   
-  figures[[1]] <- create_fig_totals(
-    title = "Totals",
-    ...
+  figures$Total <- create_fig_totals(
+    data = data,
+    question = question,
+    n_answers = n_answers,
+    title = "Total",
+    style = style,
+    fonts = fonts
   )
   
-  for (k in seq_along(categories)) {
-    category <- categories[k]
-    subtitle <- find_subtitle(category)
-    figures[[1 + k]] <- create_fig_bycategory(
-      category = category, 
-      num_font = num_font, 
-      title = subtitle,
-      ...
+  for (name in names(categories)) {
+    figures[[name]] <- create_fig_bycategory(
+      data = data,
+      question = question,
+      n_answers = n_answers,
+      category = name,
+      title = categories[[name]],
+      style = style,
+      fonts = fonts
     )
   }
   
@@ -136,76 +168,98 @@ list_figures <- function(
 }
 
 
+
+
 create_patchwork <- function(
     data, 
     question, 
     answers, 
-    categories = c(), 
-    num_font = NULL, 
+    categories, 
     title = NULL,
-    panel_size = 3,
-    spacer = 0.1,
-    marg_spacer = 0.1,
     style = list(
-      thematics = theme_minimal(), 
-      palette = "Spectral"
+      thematics = theme_minimal(),
+      palette = "Spectral",
+      panel_size = 3,
+      spacer = 0.1,
+      max_char = 50
+    ),
+    fonts = list(
+      title = 12,
+      subtitle = 11,
+      axis = 10,
+      nums = 5
     )
   ) {
   
   stopifnot(is.data.frame(data), length(question) == 1, length(answers) > 0)
   
-  if (is.null(title))
-    title <- question
+  n_answers = length(answers)
   
   figures <- list_figures(
     data = data, 
     question = question, 
-    answers = answers, 
+    n_answers = n_answers, 
     categories = categories, 
-    num_font = num_font, 
-    style = style
+    style = list(
+      thematics = style$thematics,
+      palette = style$palette
+    ),
+    fonts = fonts
+  )
+  figures$Total <- figures$Total + scale_x_discrete(labels = answers)
+  
+  dims <- dimensions(length(figures))
+  
+  title <- splitstring(title, max_char = 3 * style$max_char)
+  title_dims <- measure_text(title, fontsize = fonts$title)
+  
+  dummy_plot <- create_dummy_plot(
+    n_answers = n_answers,
+    style = list(
+      thematics = style$thematics,
+      palette = style$palette
+    )
   )
   
-  base_plot <- figures[[1]] 
-  figures <- map(figures, ~ .x + theme(legend.position = "none"))
-  
-  dims <- dimensions(1 + length(categories))
-  
-  top_space <- marg_spacer
-  right_space <- 2 * marg_spacer
-  bottom_space <- marg_spacer
-  left_space <- marg_spacer
-  
-  patchwork_width <- (panel_size + right_space + left_space) * dims$col
-  patchwork_height <- (panel_size + top_space + bottom_space) * dims$row
-  
-  title_dims <- measure_text(title, fontsize = title_fontsize)
-  
-  legend_grob <- create_inline_legend(base_plot, answers, fontsize = subtitle_fontsize)
+  legend_grob <- create_legend(
+    plot = dummy_plot, 
+    left = answers[1],
+    right = answers[length(answers)],
+    fontsize = fonts$subtitle
+  )
   legend_dims <- grob_dimensions(
     grob_width = sum(legend_grob$widths),
     grob_height = sum(legend_grob$heights)
   )
   
-  text_width <- max(title_dims$width, legend_dims$width) + 2 * spacer
+  
+  patchwork_width <- style$panel_size * dims$col
+  patchwork_height <- style$panel_size * dims$row
+  
+  text_width <- 2 * style$spacer + max(title_dims$width, legend_dims$width)
+  text_height <- title_dims$height + legend_dims$height + style$spacer
+  
   total_width <- max(patchwork_width, text_width)
-  total_height <- patchwork_height + title_dims$height + legend_dims$height + spacer
+  total_height <- patchwork_height + text_height
+  
   
   patchwork_plot <- patchwork::wrap_plots(figures, ncol = dims$col) +
     patchwork::plot_annotation(
       title = title,
-      theme = theme(plot.title = element_text(size = title_fontsize, hjust = 0.5))
-    ) &
-    theme(plot.margin = margin(top_space, right_space, 
-                               bottom_space, left_space, unit="in"))
+      theme = theme(plot.title = element_text(size = fonts$title, hjust = 0.5))
+    )
   
-  horizontal_padding <- (total_width - patchwork_width) / 2
+  horizontal_padding <- max(0, (total_width - patchwork_width) / 2)
   padded_patchwork <- cowplot::plot_grid(
     grid::nullGrob(),
     patchwork_plot,
     grid::nullGrob(),
     ncol = 3,
-    rel_widths = c(horizontal_padding, patchwork_width, horizontal_padding)
+    rel_widths = c(
+      horizontal_padding, 
+      patchwork_width, 
+      horizontal_padding
+    )
   )
   
   final_plot <- cowplot::plot_grid(
@@ -213,52 +267,112 @@ create_patchwork <- function(
     legend_grob,
     grid::nullGrob(),
     ncol = 1,
-    rel_heights = c(title_dims$height + patchwork_height, legend_dims$height, spacer)
+    rel_heights = c(
+      title_dims$height + patchwork_height, 
+      legend_dims$height, 
+      style$spacer
+    )
   )
   
   return(list(
-    plot = final_plot,
+    fig = final_plot,
     width = total_width,
     height = total_height
   ))
 }
 
 
-
-build_figure <- function(
+build_average <- function(
     data, 
-    question_data, 
-    question, 
-    categories=c(), 
-    num_font = num_fontsize,
+    base_data,
+    base,
+    category_map,
+    categories, 
+    title = TRUE,
     style = list(
-      thematics = my_thematics, 
-      palette = my_palette
+      thematics = theme_minimal(),
+      palette = "Spectral",
+      panel_size = 3,
+      spacer = 0.1,
+      max_char = 50
+    ),
+    fonts = list(
+      title = 12,
+      subtitle = 11,
+      axis = 10,
+      nums = 5
     )
-    ){
-  if (! question %in% question_data$id)
-    stop("Invalid question name")
+  ) {
+  if (! all(c("base", "title", "left", "right", "invert") 
+            %in% colnames(base_data))) 
+    stop("Incomplete bases dataframe")
   
-  type <- question_data$type[question_data$id == question]
-  if (! type %in% names(likert_answer_map))
-    stop("Invalid question type")
+  if (! base %in% base_data$base)
+    stop("Base not found")
   
-  answers <- likert_answer_map[[type]]
+  filter <- equals(base_data$base, base)
+  if (sum(filter) == 0)
+    stop("Base not found")
+  if (sum(filter) > 1)
+    stop("Non-unique base")
   
-  if (! all(categories %in% question_data$id[question_data$type == "general"]))
-    stop("Invalid categories")
+  invert <- base_data$invert[filter]
   
-  title <- find_title(ques, question)
+  base_columns <- data[grepl(base, colnames(data))] 
+  range <- as.numeric(unique(unlist(lapply(base_columns, levels))))
+  
+  base_columns <- base_columns |>
+    mutate(across(everything(), ~as.numeric(as.character(.x))))
+  
+  if (!is.na(invert)){
+    invert <- str_split(invert, pattern = ", ")[[1]]
+    invert_questions <- paste0(base, "_", invert)
+    
+    base_columns <- base_columns |>
+      mutate(across(all_of(invert_questions), ~max(range) + 1 - .x))
+  }
+  breaks <- seq(
+    from = min(range), 
+    to = max(range), 
+    length.out = length(range)-1
+  )
+  breaks[1] <- breaks[1] - 1
+  
+  data <- data |> mutate(
+    mean = cut(
+      rowMeans(base_columns), 
+      breaks = breaks,
+      labels = c(1:(length(range) - 2))
+    )
+  )
+  
+  fig_title <- if (title){
+    paste(base_data$title[filter], "average")
+  } else {
+    NULL
+  }
+  
+  left <- base_data$left[filter]
+  right <- base_data$right[filter]
+  answers <- c(left, rep("", length(breaks)-3), right)
+  
+  categories <- category_map[categories]
+  
   return(create_patchwork(
-    data = data, 
-    question = question, 
-    answers = answers, 
-    categories = categories, 
-    num_font = num_font, 
-    title = title,
-    style = style
+    data = data,
+    question = "mean",
+    answers = answers,
+    categories = categories,
+    title = fig_title,
+    style = style,
+    fonts = fonts
   ))
 }
+
+
+
+
+
 
 
 

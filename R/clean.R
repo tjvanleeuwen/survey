@@ -195,8 +195,9 @@ remove_and_write <- function(data){
   
   open_answers <- labs[, open_questions | general_questions]
   open_answers <- open_answers[
-    rowSums (is.na (labs[, open_questions])) < length(open_questions),
+    rowSums (is.na (labs[, open_questions])) < sum(open_questions),
   ]
+
   open_answers <- remove_empty(open_answers, "cols")
   write.csv(open_answers, "./data/open_questions.csv", row.names = FALSE,)
   
@@ -311,7 +312,8 @@ clean_questions <- function(data){
       sub("^([^?]*\\?).*", "\\1", question),
       remove_intro(question)
     ),
-    short = gsub("\\s*\\([^)]*\\)", "", short)
+    short = gsub("\\s*\\([^)]*\\)", "", short),
+    short = gsub("“|”", '"', short)
   )
   
   pattern <- "\\.\\.\\.\\s-\\s\\.\\.\\."
@@ -365,16 +367,25 @@ factorise <- function(data){
   for (col in ques$id[ques$type %in% c("general", "other")]){
     labs[[col]] <- factor(labs[[col]], find_levels(labs, vals, col))
   }
-  ## one is off for some reason
-  labs[["Sup_ActiveSup"]] <- 
-    factor(labs[["Sup_ActiveSup"]], 
-           c("Promotor", "Copromotor", "Postdoc", "Other"))
+  ## custom levels
+  labs[["Sup_ActiveTeam"]] <- factor(labs[["Sup_ActiveTeam"]], 0:4)
+  labs[["Sup_ActiveSup"]] <- factor(
+    labs[["Sup_ActiveSup"]], 
+    c("Promotor", "Copromotor", "Postdoc", "Other")
+  )
+  labs[["SS_IB_Exp"]] <- factor(
+    labs[["SS_IB_Exp"]],
+    c("No", "Yes others", "Yes myself", "Yes myself & others")
+  )
   
   ## some UBOS or PSS questions don't contain all categories
+
   for (type in c("ubos", "pss")){
-    cols <- ques$id[ques$type == type]
+    cols <- ques$id[equals(ques$type, type)]
+    levs <- find_levels(labs, vals, cols)
     for (col in cols){
-      labs[[col]] <- factor(labs[[col]], find_levels(labs, vals, cols))
+      labs[[col]] <- factor(labs[[col]], levs)
+      labs[[col]] <- factor(as.numeric(labs[[col]]))
     }
   }
   
