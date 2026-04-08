@@ -13,9 +13,9 @@ git clone git@github.com:tjvanleeuwen/survey.git
 ```
 
 Move your `csv` datasets to the directory `data`. Open the `survey.Rproj` 
-Rproject in Rstudio, and open the files `main.R` and `custom.R` found in the
-directory `scripts`. They can now be run to generate some figures, which will 
-end up in the directory `figures/`.
+Rproject in Rstudio, and open the `main.R` file found in the directory 
+`scripts`. It can immediately be run, but for figures to be saved to the 
+directory `figures/`, some booleans need be flipped. 
 
 ## Contents
 
@@ -23,7 +23,7 @@ There is one main R script that generates figures, `main.R`. It makes use of
 functions from the following supplementary files found in the directory `R`.
 
 - `utils.R` contains utility functions.
-- `functions.R` contains longer functions that do not generate functions.
+- `functions.R` contains longer functions that do not generate figures.
 - `clean.R` contains functions used for cleaning the datasets, and is thus
 highly specific to the data.
 - `statistics.R` contains functions that run a Wilcox test on the answers to
@@ -37,16 +37,14 @@ category (or the total).
 Likert style multiple choice questions, disaggregated by a given category. 
 Each subplot is a plot of the answers to the questions, given a particular
 answer to the category.
-- `custom.R` contains some functions that generate a patchwork plot for a 
-non-Likert style multiple choice question.
 
 ## Usage
 
 The file `main.R` cleans the data using `clean.R`, and runs the Wilcox test 
 from `statistics.R` to investigate gender and nationality biases within the
 department / institute groups. Then the figures for the Likert style questions 
-are generated, using `mc_byquestion.R` and `mc_bybase.R`. Finally, a custom
-figure is generated for each of two non-Likert style multiple choice questions.
+are generated, using `mc_byquestion.R` and `mc_bybase.R`. Finally, figures are
+generated for a custom set of non-Likert style questions using `mc_byquestion`.
 
 The figures are saved twice, once numbered in `figures/ordered/`, and once 
 named in `figures/named/`. A final directory `figures/test/` exists for testing 
