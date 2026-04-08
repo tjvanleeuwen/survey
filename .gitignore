@@ -1,6 +1,9 @@
 # Mac
 *DS_Store
 
+# History file
+.Rhistory
+
 # Generated figures
 figures/*
 !figures/.gitkeep

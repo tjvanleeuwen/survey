@@ -333,6 +333,11 @@ clean_questions <- function(data){
     relocate(short, .before=question) |>
     relocate(preamble, .before=question)
   
+  ## the Sup_Team question contains a section title
+  ques$short[ques$id == "Sup_Team"] <- sub(
+    "^Supervisory team ", "", ques$short[ques$id == "Sup_Team"]
+  )
+  
   return(list(labs, vals, ques))
 }
 
@@ -379,7 +384,6 @@ factorise <- function(data){
   )
   
   ## some UBOS or PSS questions don't contain all categories
-
   for (type in c("ubos", "pss")){
     cols <- ques$id[equals(ques$type, type)]
     levs <- find_levels(labs, vals, cols)

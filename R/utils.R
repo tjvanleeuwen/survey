@@ -1,8 +1,7 @@
-library(docstring)
 
+library(tidyverse)
 
-## ----- Utility functions -----
-
+## ----- utility functions -----
 
 equals <- function(a, b) {
   a == b & !is.na(a) & !is.na(b) | is.na(a) & is.na(b)
@@ -10,73 +9,96 @@ equals <- function(a, b) {
 
 
 remove_na <- function(x) {
-  #' @title Remove missing values from a vector
-  #' @description This function removes all NA values from a vector and
-  #' returns only the non-missing elements.
-  #' @param x A vector that may contain NA values.
-  #' @return A vector containing only the non-missing elements of x.
   x[!is.na(x)]
 }
 
 
-is_numeric <- function(x) {
-  #' @title Check whether a vector is numeric-coercible
-  #' @description This function checks whether all non-missing elements of a
-  #' vector can be coerced to numeric without introducing NA values.
-  #' It suppresses warnings from as.numeric() and returns TRUE only if
-  #' coercion succeeds for every non-NA element.
-  #' @param x A vector to test for numeric coercibility.
-  #' @return TRUE if all non-missing elements of x can be converted to numeric;
-  #' FALSE otherwise.
-  all (!is.na (suppressWarnings (as.numeric (remove_na(x)))))
+is_number <- function(x){
+  length(x) == 1 & is.numeric(x)
 }
 
 
-common_prefix <- function(str_list) {
-  #' @title Find the Longest Common Prefix
-  #' @description This function takes a character vector of strings and returns
-  #' the longest prefix that is common to all strings. If there is no common 
-  #' prefix, it returns an empty string.
-  #' @param str_list A character vector of strings to analyze
-  #' @return A single string representing the longest common prefix, or an 
-  #' empty string ("") if no common prefix exists
-  if (length(str_list) == 0) return("")
-  chars <- strsplit(str_list, "")
-  i <- 1
-  while (TRUE) {
-    current <- sapply(chars, `[`, i)
-    # Stop if characters differ or any string is too short
-    if (length(unique(current)) != 1 || any(is.na(current))) break
-    i <- i + 1
+shorten_answer <- function(column, short, test=FALSE){
+  long <- unique (remove_na (column))
+  if (test) print(long)
+  column <- setNames(short, long)[column]
+  return(column)
+}
+
+
+escape_regex <- function(x){
+  gsub("([.|()\\^{}+$*?]|\\[|\\])", "\\\\\\1", x)
+}
+
+
+
+## --- figure building ---
+# scale_fill_brewer(
+#   palette = style$palette,
+#   labels = rep("", n_answers),
+#   drop = FALSE,
+#   guide = guide_legend (nrow = 1),
+#   direction = -1
+# )
+# scale_fill_brewer(
+#   palette = style$palette, 
+#   labels = rep("", n_answers),
+#   guide = guide_legend(nrow = 1),
+#   direction = -1
+# )
+# scale_fill_brewer(
+#   palette = style$palette, 
+#   labels = rep("", n_answers), 
+#   drop = FALSE, 
+#   guide = guide_legend (nrow = 1)
+# )
+
+
+scale_fill <- function(
+    labels,
+    palette = "Spectral",
+    guide = guide_legend(nrow = 1),
+    drop = FALSE,
+    direction = 1
+  ){
+  stopifnot(
+    is.character(labels),
+    is_string(palette),
+    direction %in% c(1, -1)
+  )
+  
+  if (length(labels) == 2){
+    pal <- RColorBrewer::brewer.pal(11, palette)[c(2, 10)]
+    if (direction == -1) pal <- rev(pal)
+    scale_fill_manual(
+      values = pal,
+      labels = labels,
+      drop = drop,
+      guide = guide
+    )
+  } else if (length(labels) == 3){
+    pal <- RColorBrewer::brewer.pal(11, palette)[c(3, 6, 9)]
+    if (direction == -1) pal <- rev(pal)
+    scale_fill_manual(
+      values = pal,
+      labels = labels,
+      drop = drop,
+      guide = guide
+    )
+  } else {
+    scale_fill_brewer(
+      palette = palette,
+      labels = labels,
+      drop = drop,
+      guide = guide,
+      direction = direction
+    )
   }
-  if (i == 1) return("")
-  return(paste(chars[[1]][seq_len(i - 1)], collapse = ""))
-}
-
-
-coerce_factor <- function(col) {
-  #' @title Coerce a column to a factor
-  #' @description This function checks if a given column is already a factor.
-  #' If it is not, it converts the column to a factor and returns it. If the
-  #' column is already a factor, it is returned unchanged.
-  #' @param col A vector (e.g., numeric, character, or factor) to be coerced
-  #' @return A factor version of the input column. If the input was already
-  #' a factor, it is returned unchanged.
-  if (!is.factor(col)) return (factor(col))
-  return (col)
 }
 
 
 dimensions <- function(n) {
-  #' @title Determine grid dimensions from a single number
-  #' @description Computes a pair of dimensions (columns and rows) for arranging
-  #' items in a grid based on a single numeric input. The function prioritizes
-  #' column counts of 4, 5, or 3 (in that order) when evenly divisible. If no
-  #' exact division is possible, it selects the column count that maximizes the
-  #' remainder and rounds up the number of rows.
-  #' @param n A single numeric value indicating the total number of items.
-  #' @return A list of length two containing the number of columns and rows.
-  stopifnot(length(n) == 1, is_numeric(n))
+  stopifnot(is_number(n))
   
   n <- as.numeric(n)
   if(n < 3) return(list(col = n, row = 1))
@@ -94,6 +116,26 @@ dimensions <- function(n) {
 }
 
 
+save_build <- function(filename, build, filetype="pdf"){
+  stopifnot(
+    is_string(filename),
+    c("plot", "width", "height") %in% names(build),
+    is_string(filetype)
+  )
+  
+  ggsave(
+    filename = paste0("./figures/", filename, ".", filetype),
+    plot = build$plot,
+    width = build$width,
+    height = build$height,
+    dpi = 300
+  )
+}
+
+
+
+## --- measuring functions ---
+
 grob_dimensions <- function(grob_width, grob_height){
   x <- grid::convertWidth(grob_width, unitTo = "in", valueOnly = TRUE)
   y <- grid::convertHeight(grob_height, unitTo = "in", valueOnly = TRUE)
@@ -101,17 +143,98 @@ grob_dimensions <- function(grob_width, grob_height){
 }
 
 
+measure_text <- function(txt, fontsize=12){
+  if (is.null(txt)) return(list(width = 0, height = 0))
+  stopifnot(is.character(txt))
+
+  widths <- numeric(length(txt))
+  heights <- numeric(length(txt))
+
+  for (i in seq_along(txt)) {
+    grob <- grid::textGrob(txt[i], gp = grid::gpar(fontsize = fontsize))
+    widths[i] <- grid::convertWidth(
+      grid::grobWidth(grob), 
+      "in", 
+      valueOnly = TRUE
+    )
+    heights[i] <- grid::convertHeight(
+      grid::grobHeight(grob), 
+      "in", 
+      valueOnly = TRUE
+    )
+  }
+
+  return(list(width = widths, height = heights))
+}
+
+
+find_width <- function(txt, fontsize = 12){
+  if (is.null(txt)) return(0)
+  stopifnot(is.character(txt))
+  measure_text(txt, fontsize = fontsize)$width
+}
+
+
+width_to_spaces <- function(width, fontsize = 12) {
+  stopifnot(
+    is_number(width),
+    is_number(fontsize)
+  )
+  space_grob <- grid::textGrob(" ", gp = grid::gpar(fontsize = fontsize))
+  space_width <- grid::convertWidth(
+    grid::grobWidth(space_grob), 
+    "in", 
+    valueOnly = TRUE
+  )
+  n_spaces <- ceiling(width / space_width)
+  return(n_spaces)
+}
+
+
+splitstring_width <- function(
+    string, 
+    max_width, 
+    fontsize = 12, 
+    collapse = "\n"
+  ){
+  stopifnot(
+    is_string(string),
+    is_number(max_width),
+    is_number(fontsize),
+    is_string(collapse)
+  )
+  
+  if (find_width(string, fontsize = fontsize) < max_width) 
+    return(string)
+  
+  words <- strsplit(string, " ")[[1]]
+  
+  if (max(find_width(words, fontsize = fontsize)) >= max_width) 
+    stop("Word(s) too long")
+  
+  lines <- character(0)
+  current_line <- words[1]
+  
+  for (word in words[-1]) {
+    test_line <- paste(current_line, word, sep = " ")
+    
+    if (find_width(test_line, fontsize = fontsize) <= max_width) {
+      current_line <- test_line
+    } else {
+      lines <- c(lines, current_line)
+      current_line <- word
+    }
+  }
+  
+  lines <- c(lines, current_line)
+  paste(lines, collapse = collapse)
+}
+
+
+
+## --- unused ---
 
 show_cols <- function(lst){
-  #' @title Display list elements as equal-length tibble columns
-  #' @description This function takes a list of vectors and ensures that all
-  #' elements have the same length by extending shorter vectors with NA values.
-  #' If the list elements are unnamed, default column names are generated.
-  #' The resulting list is printed as a tibble with one column per list element.
-  #' The function is used for display purposes and does not return the tibble.
-  #' @param lst A list of vectors to be displayed as columns.
-  #' @return NULL. The formatted tibble is printed to the console as a
-  #' side effect.
   len <- max(lengths(lst))
   lst <- lapply(lst, `length<-`, len)
   if (is.null(names(lst))) {
@@ -121,121 +244,27 @@ show_cols <- function(lst){
   return()
 }
 
-
-shorten_answer <- function(column, short, test=FALSE){
-  #' @title Recode values in a column to shorter labels
-  #' @description This function replaces the non-missing values of a column
-  #' with corresponding shorter labels. Unique non-missing values are extracted
-  #' and matched in order to a provided vector of short labels. Optionally,
-  #' the detected unique values can be printed for inspection.
-  #' @param column A vector whose values are to be recoded.
-  #' @param short A character vector of replacement (short) labels. Its length
-  #' must match the number of unique non-missing values in `column`.
-  #' @param test Logical; if TRUE, the unique non-missing values of `column`
-  #' are printed before recoding. Default is FALSE.
-  #' @return A vector of the same length as `column`, where non-missing values
-  #' have been replaced by their corresponding short labels.
-  long <- unique (remove_na (column))
-  if (test) print(long)
-  column <- setNames(short, long)[column]
-  return(column)
+common_prefix <- function(str_list) {
+  if (length(str_list) == 0) return("")
+  chars <- strsplit(str_list, "")
+  i <- 1
+  while (TRUE) {
+    current <- sapply(chars, `[`, i)
+    # Stop if characters differ or any string is too short
+    if (length(unique(current)) != 1 || any(is.na(current))) break
+    i <- i + 1
+  }
+  if (i == 1) return("")
+  return(paste(chars[[1]][seq_len(i - 1)], collapse = ""))
 }
 
-
-escape_regex <- function(x){
-  #' @title Escape special characters for regular expressions
-  #' @description Escapes regular expression metacharacters in a character
-  #' vector so the values can be safely used as literal patterns in regex
-  #' functions such as `grep()`, `grepl()`, or `sub()`.
-  #' @param x A character vector that may contain regular expression
-  #' metacharacters.
-  #' @return A character vector of the same length as `x` with all regex
-  #' metacharacters escaped by a leading backslash.
-  gsub("([.|()\\^{}+$*?]|\\[|\\])", "\\\\\\1", x)
+coerce_factor <- function(col) {
+  if (!is.factor(col)) return (factor(col))
+  return (col)
 }
-
 
 int_to_string <- function(x, k=3) {
   fmt <- paste0("%0", k, "d")
   sprintf(fmt, x)
 }
-
-
-get_patchwork_title_width <- function(pw) {
-  pw_grob <- patchwork::patchworkGrob(pw)
-  
-  title_idx <- which(pw_grob$layout$name == "title")
-  if(length(title_idx) == 0) {
-    stop("No title found in this patchwork object")
-  }
-  
-  title_grob <- pw_grob$grobs[[title_idx]]
-  
-  # ensure a graphics device is open
-  if (grDevices::dev.cur() == 1) grid::grid.newpage()
-  
-  title_width <- grid::convertWidth(grid::grobWidth(title_grob), "in", 
-                                    valueOnly = TRUE)
-  return(title_width)
-}
-
-
-find_title <- function(ques, question){
-  if (! question %in% ques$id)
-    stop("Invalid question")
-  
-  row <- ques$id == question
-  
-  if (is.na (ques$preamble[row]))
-    return(ques$short[row])
-  
-  left <- sub("\\.\\.\\.$", "", ques$preamble[row])
-  right <- sub("^\\.\\.\\.\\s", "", ques$short[row])
-  return(paste(left, right))
-}
-
-
-measure_text <- function(txt, fontsize){
-  if (is.null(txt)) return(list(width = 0, height = 0))
-  txt_grob <- grid::textGrob(txt, gp = grid::gpar(fontsize = fontsize))
-  width <- grid::convertWidth(grid::grobWidth(txt_grob), "in", valueOnly = TRUE)
-  height <- grid::convertHeight(grid::grobHeight(txt_grob), "in", valueOnly = TRUE)
-  return(list(width = width, height = height))
-}
-
-
-width_to_spaces <- function(width, fontsize) {
-  space_grob <- grid::textGrob(" ", gp = grid::gpar(fontsize = fontsize))
-  space_width <- grid::convertWidth(grid::grobWidth(space_grob), "in", valueOnly = TRUE)
-  n_spaces <- ceiling(width / space_width)
-  return(n_spaces)
-}
-
-
-splitstring <- function(string, max_char = 50, coll = "\n"){
-  paste(strwrap(string, max_char), collapse = coll)
-}
-
-
-save_build <- function(filename, build, filetype="pdf"){
-  if (!all(c("fig", "width", "height") %in% names(build)))
-    stop("Incomplete build")
-  
-  ggsave(
-    filename = paste0("./figures/", filename, ".", filetype),
-    plot = build$fig,
-    width = build$width,
-    height = build$height,
-    dpi = 300
-  )
-}
-
-
-
-
-
-
-
-
-
 

@@ -20,7 +20,7 @@ my_category_map <- list(
   "Gen_Nationality" = "Dutch nationality"
 )
 
-bases_map <- list(
+my_bases_map <- list(
   "Work_JobSat" = c("Job satisfaction", "low", "high"),
   "Work_Teach_Say" = c("Say in teaching", "low", "high"),
   "Work_Teach_Distr" = c("Teaching distribution", "bad", "good"),
@@ -30,7 +30,7 @@ bases_map <- list(
   "Sup_Encourage" = c("Supervisor encouragement", "low", "high"),
   "Sup_Safe" = c("Safety supervision", "low", "high"),
   "Sup_Plan" = c("Supervision planning", "bad", "good"),
-  "SS_PsychSafetyTeam" = c("Team safety", "bad", "good", "1, 2, 5, 6"),
+  "SS_PsychSafetyTeam" = c("Team safety", "bad", "good", "1, 3, 5, 6"),
   "SS_TeamBehaviour" = c("Team behaviour", "bad", "good"),
   "SS_PsychSafetyOrg" = c("Senior management", "bad", "good"),
   "SS_Rights" = c("Awareness of rights", "low", "high"),
@@ -46,7 +46,7 @@ bases_map <- list(
   "MH_Belonging" = c("Belonging", "low", "high")
 )
 
-bases <- imap_dfr(bases_map, ~tibble(
+my_bases <- imap_dfr(my_bases_map, ~tibble(
   base = .y,
   title = .x[1],
   left = .x[2],
@@ -59,14 +59,13 @@ my_thematics <- theme(
   panel.grid.minor = element_blank(),
   panel.background = element_blank(),
   axis.line = element_line(colour = "black"),
-  legend.title = element_blank(),
   axis.title.x = element_blank(),
   axis.title.y = element_blank()
 )
 
 my_style = list(
   thematics = my_thematics,
-  palette = "RdYlGn",
+  palette = "RdYlBu",
   panel_size = 3,
   spacer = 0.1,
   max_char = 60

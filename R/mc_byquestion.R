@@ -40,12 +40,19 @@ create_fig_totals <- function(
     aes(x=!!qsym, y=n, fill=!!qsym) +
     geom_col() +
 
-    scale_fill_brewer(
-      palette = style$palette, 
-      labels = rep("", n_answers), 
-      drop = FALSE, 
-      guide = guide_legend (nrow = 1)
+    # scale_fill_brewer(
+    #   palette = style$palette, 
+    #   labels = rep("", n_answers), 
+    #   # drop = FALSE, 
+    #   guide = guide_legend (nrow = 1)
+    # ) +
+    scale_fill(
+      labels = rep("", n_answers),
+      palette = style$palette,
+      guide = guide_legend(nrow = 1),
+      direction = 1
     ) +
+    scale_x_discrete(labels = NULL) + 
     labs(title = title) +
     style$thematics +
     theme(
@@ -98,9 +105,15 @@ create_fig_bycategory <- function(
     geom_col(position = "fill") +
     
     scale_x_continuous(labels = percent_format(accuracy = 1)) +
-    scale_fill_brewer(
-      palette = style$palette, 
+    # scale_fill_brewer(
+    #   palette = style$palette, 
+    #   labels = rep("", n_answers),
+    #   guide = guide_legend(nrow = 1),
+    #   direction = -1
+    # ) +
+    scale_fill(
       labels = rep("", n_answers),
+      palette = style$palette,
       guide = guide_legend(nrow = 1),
       direction = -1
     ) +
@@ -127,7 +140,7 @@ create_fig_bycategory <- function(
 list_figures <- function(
     data,
     question,
-    categories,
+    categories = list(),
     n_answers = 7,
     style = list(
       thematics = theme_minimal(),
@@ -143,11 +156,16 @@ list_figures <- function(
   
   figures <- list()
   
+  total_title <- NULL
+  if (length(categories) > 0){
+    total_title <- "Total"
+  }
+  
   figures$Total <- create_fig_totals(
     data = data,
     question = question,
     n_answers = n_answers,
-    title = "Total",
+    title = total_title,
     style = style,
     fonts = fonts
   )
@@ -168,20 +186,17 @@ list_figures <- function(
 }
 
 
-
-
 create_patchwork <- function(
     data, 
     question, 
-    answers, 
-    categories, 
+    answers = NULL, 
+    categories = list(), 
     title = NULL,
+    legend_loc = "bottom",
     style = list(
       thematics = theme_minimal(),
       palette = "Spectral",
-      panel_size = 3,
-      spacer = 0.1,
-      max_char = 50
+      panel_size = 3
     ),
     fonts = list(
       title = 12,
@@ -189,11 +204,18 @@ create_patchwork <- function(
       axis = 10,
       nums = 5
     )
-  ) {
+) {
+  stopifnot(
+    is.data.frame(data), 
+    is_string(question),
+    question %in% colnames(data),
+    legend_loc %in% c("bottom", "right")
+  )
   
-  stopifnot(is.data.frame(data), length(question) == 1, length(answers) > 0)
-  
-  n_answers = length(answers)
+  if (is.null(answers)){
+    answers <- levels(data[[question]])
+  }
+  n_answers <- length(answers)
   
   figures <- list_figures(
     data = data, 
@@ -206,79 +228,33 @@ create_patchwork <- function(
     ),
     fonts = fonts
   )
-  figures$Total <- figures$Total + scale_x_discrete(labels = answers)
   
-  dims <- dimensions(length(figures))
+  grid_dims <- dimensions(length(figures))
   
-  title <- splitstring(title, max_char = 3 * style$max_char)
-  title_dims <- measure_text(title, fontsize = fonts$title)
+  plot <- patchwork::wrap_plots(figures, ncol = grid_dims$col)
+  width <- style$panel_size * grid_dims$col
+  height <- style$panel_size * grid_dims$row
   
-  dummy_plot <- create_dummy_plot(
-    n_answers = n_answers,
-    style = list(
-      thematics = style$thematics,
-      palette = style$palette
-    )
+  build <- list(plot = plot, width = width, height = height)
+  
+  build <- place_legend(
+    build = build,
+    answers = answers,
+    palette = style$palette,
+    fontsize = fonts$subtitle,
+    position = legend_loc
   )
   
-  legend_grob <- create_legend(
-    plot = dummy_plot, 
-    left = answers[1],
-    right = answers[length(answers)],
-    fontsize = fonts$subtitle
-  )
-  legend_dims <- grob_dimensions(
-    grob_width = sum(legend_grob$widths),
-    grob_height = sum(legend_grob$heights)
-  )
-  
-  
-  patchwork_width <- style$panel_size * dims$col
-  patchwork_height <- style$panel_size * dims$row
-  
-  text_width <- 2 * style$spacer + max(title_dims$width, legend_dims$width)
-  text_height <- title_dims$height + legend_dims$height + style$spacer
-  
-  total_width <- max(patchwork_width, text_width)
-  total_height <- patchwork_height + text_height
-  
-  
-  patchwork_plot <- patchwork::wrap_plots(figures, ncol = dims$col) +
-    patchwork::plot_annotation(
+  if (!is.null(title)){
+    build <- place_title(
+      build = build,
       title = title,
-      theme = theme(plot.title = element_text(size = fonts$title, hjust = 0.5))
+      fontsize = fonts$title,
+      minimum_width = 2 * style$panel_size
     )
+  }
   
-  horizontal_padding <- max(0, (total_width - patchwork_width) / 2)
-  padded_patchwork <- cowplot::plot_grid(
-    grid::nullGrob(),
-    patchwork_plot,
-    grid::nullGrob(),
-    ncol = 3,
-    rel_widths = c(
-      horizontal_padding, 
-      patchwork_width, 
-      horizontal_padding
-    )
-  )
-  
-  final_plot <- cowplot::plot_grid(
-    padded_patchwork,
-    legend_grob,
-    grid::nullGrob(),
-    ncol = 1,
-    rel_heights = c(
-      title_dims$height + patchwork_height, 
-      legend_dims$height, 
-      style$spacer
-    )
-  )
-  
-  return(list(
-    fig = final_plot,
-    width = total_width,
-    height = total_height
-  ))
+  return(build)
 }
 
 
@@ -303,23 +279,28 @@ build_average <- function(
       nums = 5
     )
   ) {
-  if (! all(c("base", "title", "left", "right", "invert") 
-            %in% colnames(base_data))) 
-    stop("Incomplete bases dataframe")
-  
-  if (! base %in% base_data$base)
-    stop("Base not found")
+  stopifnot(
+    is.data.frame(data),
+    is.data.frame(base_data),
+    is_string(base),
+    is.list(category_map),
+    is.character(categories),
+    is_bool(title),
+    sapply(fonts, is_number)
+  )
+  stopifnot(
+    c("base", "title", "left", "right", "invert") %in% colnames(base_data),
+    categories %in% names(category_map)
+  )
   
   filter <- equals(base_data$base, base)
-  if (sum(filter) == 0)
-    stop("Base not found")
-  if (sum(filter) > 1)
-    stop("Non-unique base")
+  stopifnot(sum(filter) == 1)
   
   invert <- base_data$invert[filter]
   
   base_columns <- data[grepl(base, colnames(data))] 
-  range <- as.numeric(unique(unlist(lapply(base_columns, levels))))
+  range <- unlist(lapply(base_columns, levels))
+  range <- as.numeric(unique(range))
   
   base_columns <- base_columns |>
     mutate(across(everything(), ~as.numeric(as.character(.x))))
@@ -331,6 +312,7 @@ build_average <- function(
     base_columns <- base_columns |>
       mutate(across(all_of(invert_questions), ~max(range) + 1 - .x))
   }
+  
   breaks <- seq(
     from = min(range), 
     to = max(range), 
@@ -346,10 +328,9 @@ build_average <- function(
     )
   )
   
-  fig_title <- if (title){
-    paste(base_data$title[filter], "average")
-  } else {
-    NULL
+  fig_title <- NULL
+  if (title) {
+    fig_title <- paste(base_data$title[filter], "average")
   }
   
   left <- base_data$left[filter]
